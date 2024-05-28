@@ -1,0 +1,376 @@
+---
+title: "Running Decision Tree"
+format: html
+---
+
+## Quarto
+NEED TO LOAD "DECISION TREE" ENVIRONMENT BEFORE THIS AND ALL OTHER DECISION TREE QUARTO FILES TO GET USE OF CLEANED DFS
+STEP 1: Create DF for The most common 20 assessment values
+```{r}
+# Create a dataframe for the top 20 assessment values
+assessment_values_df <- tibble(
+  Assessment = c(
+    "ACL", "ACL MEN", "PFI", "MODMCL", "MMT", "MILMCL", "ACL MMT", "LMT", "OA", "MMT MILMCL",
+    "OTHER", "ACL LMT", "PFP", "ACL MODMCL", "ACL MEN MILMCL", "BC", "MMT MODMCL", "ACL MILMCL",
+    "MEN", "ACL MODMCL MEN"
+  )
+)
+# View the assessment_values_df to ensure it looks correct
+View(assessment_values_df)
+#Correct, here are the 20 most common I screened for in the excel spreadsheet, sheet 3, of currently-titled "ML variables as columns cleaning"
+```
+
+STEP 2: Clean and filter the df_work data
+```{r}
+# Clean the Assessment column in df_work to ensure consistency
+df_work <- df_work %>%
+  mutate(Assessment = str_trim(Assessment),  # Remove leading/trailing whitespace
+         Assessment = toupper(Assessment))   # Convert to uppercase
+
+# Print unique values in the Assessment column after cleaning
+unique_assessments_after <- unique(df_work$Assessment)
+print(unique_assessments_after)  # Print all unique values
+
+# Join df_work with assessment_values_df to filter the data
+filtered_df <- df_work %>%
+  inner_join(assessment_values_df, by = "Assessment")
+
+# Confirm the number of cases
+num_cases <- nrow(filtered_df)
+print(num_cases)
+#3546 is correct (My excel has 3544 before cleaning double/leading/trailing spaces above).
+
+# Check the first few rows of filtered_df to ensure it looks correct
+print(head(filtered_df))
+
+```
+
+STEP 3: Prepare data for decision tree
+```{r}
+# Prepare the predictors and outcome
+predictors <- filtered_df %>% select(-patientID, -Assessment) #DF of predictors
+outcome <- filtered_df$Assessment #Vector of outcome
+```
+
+STEP 4: Splitting the data to training and testing (70-30 as per submitted ethics methods)
+```{r}
+# Combine predictors and outcome back into a dataframe for modeling
+data_for_model <- cbind(predictors, Assessment = outcome)
+
+# Set arbitrary seed for randomness of allocation to training and testing sets
+set.seed(25)
+
+# Split the data into training (70%) and testing (30%) sets
+train_index <- sample(seq_len(nrow(data_for_model)), size = 0.7 * nrow(data_for_model))
+train_data <- data_for_model[train_index, ]
+test_data <- data_for_model[-train_index, ]
+#Confirmed 70% and 30% of 3546 by checking "test/train_data" obs (2482 / 1218).
+```
+
+STEP 5: TRAIN the decision tree
+```{r}
+library(rpart)
+library(rpart.plot)
+decision_tree <- rpart(Assessment ~ ., data = train_data, method = "class")
+```
+
+**CROSS VALIDATION FIRST**
+Clean Column Names
+Clean the column names to remove any special characters or spaces:
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(rpart)
+library(caret)
+library(rpart.plot)
+library(stringr)
+library(tibble)
+
+# Create a dataframe for the top 20 assessment values
+assessment_values_df <- tibble(
+  Assessment = c(
+    "ACL", "ACL MEN", "PFI", "MODMCL", "MMT", "MILMCL", "ACL MMT", "LMT", "OA", "MMT MILMCL",
+    "OTHER", "ACL LMT", "PFP", "ACL MODMCL", "ACL MEN MILMCL", "BC", "MMT MODMCL", "ACL MILMCL",
+    "MEN", "ACL MODMCL MEN"
+  )
+)
+
+# Clean the Assessment column in df_work to ensure consistency
+df_work <- df_work %>%
+  mutate(Assessment = str_trim(Assessment),  # Remove leading/trailing whitespace
+         Assessment = toupper(Assessment))   # Convert to uppercase
+
+# Join df_work with assessment_values_df to filter the data
+filtered_df <- df_work %>%
+  inner_join(assessment_values_df, by = "Assessment")
+
+# Replace missing values with "NA" for character columns
+filtered_df <- filtered_df %>%
+  mutate(across(where(is.character), ~ ifelse(is.na(.), "NA", .)))
+
+# Ensure all columns are either numeric or factors before modeling
+filtered_df <- filtered_df %>%
+  mutate(across(where(is.character), as.factor))
+
+# Clean column names
+colnames(filtered_df) <- make.names(colnames(filtered_df), unique = TRUE)
+
+# Check for any remaining missing values and print their locations
+missing_info <- sapply(filtered_df, function(x) sum(is.na(x)))
+print(missing_info)
+
+# If there are still missing values, handle them accordingly
+if(any(missing_info > 0)) {
+  print("Handling remaining missing values...")
+  filtered_df <- filtered_df %>%
+    mutate(across(everything(), ~ ifelse(is.na(.), "NA", .)))
+}
+
+# Prepare the predictors and outcome
+predictors <- filtered_df %>% select(-patientID, -Assessment) # Exclude patientID and Assessment
+outcome <- filtered_df$Assessment # Outcome variable
+
+# Combine predictors and outcome back into a dataframe for modeling
+data_for_model <- cbind(predictors, Assessment = outcome)
+
+# Check the structure of the dataset
+str(data_for_model)
+
+```
+
+Perform Cross-Validation and Train Decision Tree
+Use the caret package to perform cross-validation and tune the decision tree model:
+```{r}
+# Set up the cross-validation
+train_control <- trainControl(method = "cv", number = 10)  # 10-fold cross-validation
+
+# Train the decision tree with cross-validation
+decision_tree_cv <- train(
+  Assessment ~ ., 
+  data = data_for_model, 
+  method = "rpart",
+  trControl = train_control,
+  tuneLength = 10  # Number of different complexity parameters to try
+)
+
+# Print the best tuning parameter
+print(decision_tree_cv$bestTune)
+
+# Plot the decision tree
+rpart.plot(decision_tree_cv$finalModel)
+
+# Print the cross-validation results
+print(decision_tree_cv)
+
+```
+
+****Decision tree - ALL 20 Dx, ALL PREDICTORS - with cross validation and plotting****
+This code maintains the string values of the columns instead of giving numbers in the tree resulting in splits at responses like "Lachman >= 7".
+```{r}
+# Load necessary packages
+if (!requireNamespace("dplyr", quietly = TRUE)) {
+  install.packages("dplyr")
+}
+if (!requireNamespace("caret", quietly = TRUE)) {
+  install.packages("caret")
+}
+if (!requireNamespace("rpart.plot", quietly = TRUE)) {
+  install.packages("rpart.plot")
+}
+library(dplyr)
+library(caret)
+library(rpart.plot)
+
+# Remove the BMI column
+filtered_df <- filtered_df %>% select(-BMI)
+
+# Convert character columns to factors
+filtered_df <- filtered_df %>%
+  mutate(across(where(is.character), as.factor))
+
+# Identify factor columns
+factor_columns <- sapply(filtered_df, is.factor)
+factor_names <- names(filtered_df)[factor_columns]
+print(factor_names)
+
+# Create a list to store the mappings
+factor_mappings <- list()
+
+# Extract levels and create mappings for each factor column
+for (col in factor_names) {
+  levels <- levels(filtered_df[[col]])
+  factor_mappings[[col]] <- setNames(seq_along(levels), levels)
+}
+
+# Print the mappings
+print(factor_mappings)
+
+# Function to format the mappings for printing
+format_mappings <- function(mappings) {
+  for (col in names(mappings)) {
+    cat(paste("Column:", col, "\n"))
+    mapping <- mappings[[col]]
+    for (level in names(mapping)) {
+      cat(paste(level, "=", mapping[level], "\n"))
+    }
+    cat("\n")
+  }
+}
+
+# Print the legend
+format_mappings(factor_mappings)
+
+# Function to replace NA with median for numeric columns
+replace_na_with_median <- function(x) {
+  if (is.numeric(x)) {
+    x[is.na(x)] <- median(x, na.rm = TRUE)
+  }
+  return(x)
+}
+
+# Function to replace NA with "Unknown" for factor columns
+replace_na_with_unknown <- function(x) {
+  if (is.factor(x)) {
+    x[is.na(x)] <- "Unknown"
+  }
+  return(x)
+}
+
+# Apply the functions to the appropriate columns
+filtered_df <- filtered_df %>%
+  mutate(across(where(is.numeric), replace_na_with_median)) %>%
+  mutate(across(where(is.factor), replace_na_with_unknown))
+
+# Clean column names to ensure they are valid R variable names
+colnames(filtered_df) <- make.names(colnames(filtered_df), unique = TRUE)
+
+# Check for remaining missing values
+missing_info <- sapply(filtered_df, function(x) sum(is.na(x)))
+print(missing_info)
+
+# Ensure there are no missing values in the Assessment column
+if (any(is.na(filtered_df$Assessment))) {
+  stop("There are missing values in the Assessment column.")
+}
+
+# Verify the structure of the dataframe
+str(filtered_df)
+
+# Set up the cross-validation
+train_control <- trainControl(method = "cv", number = 10)
+
+# Train the decision tree with cross-validation
+decision_tree_cv <- train(
+  Assessment ~ ., 
+  data = filtered_df, 
+  method = "rpart",
+  trControl = train_control,
+  tuneLength = 10
+)
+
+# Print the best tuning parameter
+print(decision_tree_cv$bestTune)
+
+# Print the cross-validation results
+print(decision_tree_cv)
+
+# Save the plot as a high-resolution PNG
+png(filename = "decision_tree_large.png", width = 4000, height = 3000, res = 300)
+rpart.plot(decision_tree_cv$finalModel, type = 4, extra = 101, cex = 1.5)
+dev.off()
+
+# Display the plot in R with increased cex for better readability
+rpart.plot(decision_tree_cv$finalModel, type = 4, extra = 101, cex = 1.5)
+
+```
+***Then a confusion matrix that gives numerous accuacy measures***
+```{r}
+# Load necessary packages
+if (!requireNamespace("dplyr", quietly = TRUE)) {
+  install.packages("dplyr")
+}
+if (!requireNamespace("caret", quietly = TRUE)) {
+  install.packages("caret")
+}
+if (!requireNamespace("rpart.plot", quietly = TRUE)) {
+  install.packages("rpart.plot")
+}
+library(dplyr)
+library(caret)
+library(rpart.plot)
+
+# Remove the BMI column
+filtered_df <- filtered_df %>% select(-BMI)
+
+# Convert character columns to factors
+filtered_df <- filtered_df %>%
+  mutate(across(where(is.character), as.factor))
+
+# Clean column names to ensure they are valid R variable names
+colnames(filtered_df) <- make.names(colnames(filtered_df), unique = TRUE)
+
+# Check for remaining missing values
+missing_info <- sapply(filtered_df, function(x) sum(is.na(x)))
+print(missing_info)
+
+# Ensure there are no missing values in the Assessment column
+if (any(is.na(filtered_df$Assessment))) {
+  stop("There are missing values in the Assessment column.")
+}
+
+# Split the data into training and test sets
+set.seed(123)  # Set seed for reproducibility
+trainIndex <- createDataPartition(filtered_df$Assessment, p = 0.8, list = FALSE)
+trainData <- filtered_df[trainIndex, ]
+testData <- filtered_df[-trainIndex, ]
+
+# Set up the cross-validation
+train_control <- trainControl(method = "cv", number = 10)
+
+# Train the decision tree with cross-validation
+decision_tree_cv <- train(
+  Assessment ~ ., 
+  data = trainData, 
+  method = "rpart",
+  trControl = train_control,
+  tuneLength = 10
+)
+
+# Print the best tuning parameter
+print(decision_tree_cv$bestTune)
+
+# Print the cross-validation results
+print(decision_tree_cv)
+
+# Make predictions on the test set
+predictions <- predict(decision_tree_cv, newdata = testData)
+
+# Generate the confusion matrix
+conf_matrix <- confusionMatrix(predictions, testData$Assessment)
+
+# Calculate prevalence for each diagnosis in the test set
+prevalence <- prop.table(table(testData$Assessment))
+
+# Extract accuracy measures
+accuracy_measures <- as.data.frame(conf_matrix$byClass)
+accuracy_measures <- accuracy_measures[, c("Sensitivity", "Specificity", "Pos Pred Value", "Neg Pred Value", "Balanced Accuracy")]
+
+# Calculate Likelihood Ratios
+accuracy_measures$LR_Plus <- accuracy_measures$Sensitivity / (1 - accuracy_measures$Specificity)
+accuracy_measures$LR_Minus <- (1 - accuracy_measures$Sensitivity) / accuracy_measures$Specificity
+
+# Add Prevalence column
+accuracy_measures$Prevalence <- prevalence[rownames(accuracy_measures)]
+
+# Convert NaNs to NA for better readability
+accuracy_measures[is.na(accuracy_measures)] <- NA
+
+# Add the class names to the data frame
+accuracy_measures$Diagnosis <- rownames(accuracy_measures)
+rownames(accuracy_measures) <- NULL
+
+# Reorder columns
+accuracy_measures <- accuracy_measures[, c("Diagnosis", "Sensitivity", "Specificity", "Pos Pred Value", "Neg Pred Value", "Balanced Accuracy", "LR_Plus", "LR_Minus", "Prevalence")]
+
+# Save the results to a CSV file
+```

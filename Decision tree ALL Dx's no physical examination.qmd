@@ -1,0 +1,153 @@
+---
+title: "Decision tree ALL Dx's no physical examination"
+format: html
+---
+
+## Quarto
+NEED TO LOAD "DECISION TREE" ENVIRONMENT BEFORE THIS AND ALL OTHER DECISION TREE QUARTO FILES TO GET USE OF CLEANED DFS
+```{r}
+# Load necessary packages
+if (!requireNamespace("dplyr", quietly = TRUE)) {
+  install.packages("dplyr")
+}
+if (!requireNamespace("caret", quietly = TRUE)) {
+  install.packages("caret")
+}
+if (!requireNamespace("rpart.plot", quietly = TRUE)) {
+  install.packages("rpart.plot")
+}
+library(dplyr)
+library(caret)
+library(rpart.plot)
+
+# Define the 20 assessment values
+assessment_values <- c("ACL", "ACL MEN", "PFI", "MODMCL", "MMT", "MILMCL", 
+                       "ACL MMT", "LMT", "OA", "MMT MILMCL", "OTHER", "ACL LMT", 
+                       "PFP", "ACL MODMCL", "ACL MEN MILMCL", "BC", "MMT MODMCL", 
+                       "ACL MILMCL", "MEN", "ACL MODMCL MEN")
+
+# Filter filtered_df for the specific assessment values
+filtered_df_work <- filtered_df %>%
+  filter(Assessment %in% assessment_values)
+
+# Set the levels of the Assessment column to only include the specified values
+filtered_df_work$Assessment <- factor(filtered_df_work$Assessment, levels = assessment_values)
+
+# Check the total number of cases
+total_cases <- nrow(filtered_df_work)
+print(paste("Total cases with specified assessment values:", total_cases))
+
+# Clean and prepare the filtered_df_work dataset
+filtered_df_work <- filtered_df_work %>%
+  mutate(across(where(is.character), as.factor))
+
+# Remove the BMI column if it exists
+if ("BMI" %in% colnames(filtered_df_work)) {
+  filtered_df_work <- filtered_df_work %>% select(-BMI)
+}
+
+# Remove specified columns from predictors
+columns_to_remove <- c("patientID", "Alignment", "Dial.Test", "Effusion", "Full.Squat", 
+                       "Lachman", "McMurray", "Neurovascular", "Patellar.Apprehension", 
+                       "Pivot.Shift", "SLR", "Sag.Sign", "Thumb.Sign")
+filtered_df_work <- filtered_df_work %>% select(-all_of(columns_to_remove))
+
+# Clean column names to ensure they are valid R variable names
+colnames(filtered_df_work) <- make.names(colnames(filtered_df_work), unique = TRUE)
+
+# Handle missing values in the Age column by replacing them with the median age
+filtered_df_work$Age[is.na(filtered_df_work$Age)] <- median(filtered_df_work$Age, na.rm = TRUE)
+
+# Verify no remaining missing values
+missing_info <- sapply(filtered_df_work, function(x) sum(is.na(x)))
+print(missing_info)
+
+# Ensure there are no missing values in the Assessment column
+if (any(is.na(filtered_df_work$Assessment))) {
+  stop("There are missing values in the Assessment column.")
+}
+
+# Drop unused factor levels in the Assessment column
+filtered_df_work$Assessment <- droplevels(filtered_df_work$Assessment)
+
+# Split the data into training and test sets
+set.seed(123)  # Set seed for reproducibility
+trainIndex <- createDataPartition(filtered_df_work$Assessment, p = 0.8, list = FALSE)
+trainData <- filtered_df_work[trainIndex, ]
+testData <- filtered_df_work[-trainIndex, ]
+
+# Ensure the training set also drops unused levels
+trainData$Assessment <- droplevels(trainData$Assessment)
+
+# Set up the cross-validation
+train_control <- trainControl(method = "cv", number = 10)
+
+# Train the decision tree with cross-validation
+decision_tree_cv <- train(
+  Assessment ~ ., 
+  data = trainData, 
+  method = "rpart",
+  trControl = train_control,
+  tuneLength = 10
+)
+
+# Print the best tuning parameter
+print(decision_tree_cv$bestTune)
+
+# Print the cross-validation results
+print(decision_tree_cv)
+
+# Make predictions on the test set
+predictions <- predict(decision_tree_cv, newdata = testData)
+
+# Generate the confusion matrix
+conf_matrix <- confusionMatrix(predictions, testData$Assessment)
+
+# Print the confusion matrix and statistics
+print(conf_matrix)
+
+# Extract summary statistics
+overall_stats <- conf_matrix$overall
+accuracy <- overall_stats['Accuracy']
+accuracy_ci <- c(overall_stats['AccuracyLower'], overall_stats['AccuracyUpper'])
+kappa <- overall_stats['Kappa']
+nir <- overall_stats['AccuracyNull']
+p_value <- overall_stats['AccuracyPValue']
+
+# Print summary statistics in paragraph format
+cat(sprintf(
+  "Overall, the model achieved an accuracy of %.2f%% with a 95%% confidence interval of %.2f%% to %.2f%%. The no information rate (NIR) was %.2f%%, and the p-value for the model's accuracy being greater than the NIR was %.2g, indicating that the model's performance was significantly better than random chance. The kappa statistic, which measures agreement between observed and predicted classifications, was %.4f, suggesting fair agreement.\n",
+  accuracy * 100,
+  accuracy_ci[1] * 100,
+  accuracy_ci[2] * 100,
+  nir * 100,
+  p_value,
+  kappa
+))
+
+# Extract accuracy measures
+accuracy_measures <- as.data.frame(conf_matrix$byClass)
+accuracy_measures <- accuracy_measures[, c("Sensitivity", "Specificity", "Pos Pred Value", "Neg Pred Value", "Balanced Accuracy")]
+
+# Calculate Likelihood Ratios
+accuracy_measures$LR_Plus <- accuracy_measures$Sensitivity / (1 - accuracy_measures$Specificity)
+accuracy_measures$LR_Minus <- (1 - accuracy_measures$Sensitivity) / accuracy_measures$Specificity
+
+# Convert NaNs to NA for better readability
+accuracy_measures[is.na(accuracy_measures)] <- NA
+
+# Add the class names to the data frame
+accuracy_measures$Diagnosis <- rownames(accuracy_measures)
+rownames(accuracy_measures) <- NULL
+
+# Reorder columns
+accuracy_measures <- accuracy_measures[, c("Diagnosis", "Sensitivity", "Specificity", "Pos Pred Value", "Neg Pred Value", "Balanced Accuracy", "LR_Plus", "LR_Minus")]
+
+# Save the results to a CSV file
+write.csv(accuracy_measures, file = "knee_injury_diagnosis_accuracy_with_LR_20_diagnoses.csv", row.names = FALSE)
+
+# Print the total cases again for confirmation
+print(paste("Total cases with specified assessment values:", total_cases))
+
+```
+

@@ -1,0 +1,85 @@
+---
+title: "Isolated Dx Comparison Significance"
+format: html
+---
+
+## Quarto
+```{r}
+# Create dataframes from the provided data
+data_all_predictors <- data.frame(
+  Diagnosis = c("ACL", "PCL", "MCL", "LCL", "MMT", "LMT", "MEN", "OA", "BC", "PFI"),
+  Sensitivity = c(0.89, 0.67, 0.78, 0.0, 0.25, 0.39, 0.0, 0.25, 0.0, 0.7),
+  Specificity = c(0.9, 1.0, 0.79, 1.0, 0.94, 0.93, 1.0, 0.95, 1.0, 0.96),
+  PPV = c(0.66, 1.0, 0.56, NA, 0.34, 0.39, NA, 0.32, NA, 0.75),
+  NPV = c(0.97, 0.99, 0.91, 0.99, 0.91, 0.93, 0.96, 0.93, 0.95, 0.95),
+  LR_plus = c(8.73, Inf, 3.66, NA, 4.07, 5.97, NA, 5.21, NA, 17.97),
+  LR_minus = c(0.13, 0.33, 0.28, 1.0, 0.8, 0.65, 1.0, 0.79, 1.0, 0.31)
+)
+
+data_no_px <- data.frame(
+  Diagnosis = c("ACL", "PCL", "MCL", "LCL", "MMT", "LMT", "MEN", "OA", "BC", "PFI"),
+  Sensitivity = c(0.46, 0.0, 0.83, 0.0, 0.05, 0.21, 0.0, 0.56, 0.0, 0.44),
+  Specificity = c(0.85, 1.0, 0.76, 1.0, 0.95, 0.96, 0.98, 0.93, 1.0, 0.89),
+  PPV = c(0.41, NA, 0.55, NA, 0.11, 0.36, 0.0, 0.41, NA, 0.39),
+  NPV = c(0.88, 0.98, 0.93, 0.99, 0.89, 0.92, 0.96, 0.96, 0.95, 0.91),
+  LR_plus = c(3.12, NA, 3.44, NA, 0.91, 5.23, 0.0, 7.66, NA, 3.99),
+  LR_minus = c(0.63, 1.0, 0.22, 1.0, 1.0, 0.82, 1.02, 0.47, 1.0, 0.63)
+)
+
+# Convert "Inf" to NA
+data_all_predictors[sapply(data_all_predictors, is.infinite)] <- NA
+data_no_px[sapply(data_no_px, is.infinite)] <- NA
+
+# Perform statistical tests
+results <- data.frame(
+  Diagnosis = character(),
+  Metric = character(),
+  All_Predictors_Mean = numeric(),
+  No_Px_Mean = numeric(),
+  P_Value = numeric(),
+  Significant = character()
+)
+
+metrics <- c("Sensitivity", "Specificity", "PPV", "NPV", "LR_plus", "LR_minus")
+
+for (metric in metrics) {
+  all_predictors_values <- data_all_predictors[[metric]]
+  no_px_values <- data_no_px[[metric]]
+  
+  # Filter out pairs where one or both values are NA
+  valid_indices <- which(!is.na(all_predictors_values) & !is.na(no_px_values))
+  valid_all_predictors_values <- all_predictors_values[valid_indices]
+  valid_no_px_values <- no_px_values[valid_indices]
+  
+  if (length(valid_all_predictors_values) == length(valid_no_px_values) && length(valid_all_predictors_values) > 1) {
+    # Use paired t-test
+    test_result <- t.test(valid_all_predictors_values, valid_no_px_values, paired = TRUE)
+    p_value <- test_result$p.value
+  } else {
+    # Use Wilcoxon signed-rank test if lengths differ
+    test_result <- wilcox.test(valid_all_predictors_values, valid_no_px_values, paired = TRUE)
+    p_value <- test_result$p.value
+  }
+  
+  for (i in valid_indices) {
+    results <- rbind(results, data.frame(
+      Diagnosis = data_all_predictors$Diagnosis[i],
+      Metric = metric,
+      All_Predictors_Mean = data_all_predictors[i, metric],
+      No_Px_Mean = data_no_px[i, metric],
+      P_Value = p_value,
+      Significant = ifelse(p_value < 0.05, "Yes", "No")
+    ))
+  }
+}
+
+# Write results to CSV
+write.csv(results, file = "isolated_dx_comparison_significance.csv", row.names = FALSE)
+
+# Print the results
+print(head(results))
+
+
+
+```
+

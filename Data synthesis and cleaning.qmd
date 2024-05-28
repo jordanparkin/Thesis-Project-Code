@@ -1,0 +1,1685 @@
+---
+title: "Apr 20_v2"
+format: html
+---
+
+##Import the 3/4 dataframes needed (not referral) and retitle as "ocean" "surgery" and "imaging"
+
+```{r}
+library(readxl)
+ocean <- read_excel("C:/Users/jorda/OneDrive/Desktop/MSc Documents/Data/UC_AKIC_tokenValuePair_anon_202309150917 (1).xlsx")
+View(ocean)
+library(readxl)
+surgery <- read_excel("C:/Users/jorda/OneDrive/Desktop/MSc Documents/Data/UC_AKIC_sxreports_anon_202309150917.xlsx")
+View(surgery)
+library(readr)
+imaging <- read_csv("C:/Users/jorda/OneDrive/Desktop/MSc Documents/Data/UC_AKIC_DI_anon_202309150916.csv")
+```
+
+####Check number of unique patientID's in ocean - this should remain constant once dfs are merged
+
+```{r}
+n_distinct(ocean$uofcTempPatientID)
+#answer: 13187
+```
+
+##Remove unnecessary rows from each of ocean, surgery, and imaging
+
+```{r}
+ocean_subset <- ocean[, c("uofcTempPatientID", "Age", "recordId", "Token", "Value")]
+imaging_subset <- imaging[, c("uofcTempPatientID", "Sub-Type", "Sex")]
+```
+
+Rename "Sub-Type" as "imaging" in imaging_subset
+```{r}
+imaging_subset <- imaging_subset %>%
+                  rename(imaging = `Sub-Type`)
+```
+Viewed imaging_subset and saw that this worked, column now titled "imaging"
+
+There are no rows in imaging_subset that are missing both sex and imaging values. In fact, none are missing sex but many don't have imaging (and that's to be expected). 
+
+I'll now add "Sex" and it's corresponding value (M or F) to "Token" and "Value" respectively in ocean_subset1. Current obs in ocean_subset is 737194. 
+```{r}
+# Get unique patient IDs from ocean_subset
+unique_patient_ids <- unique(ocean_subset$uofcTempPatientID)
+
+# Create a new data frame to store the updated ocean_subset
+updated_ocean_subset <- data.frame(uofcTempPatientID = character(), Age = character(), recordId = character(), Token = character(), Value = character(), stringsAsFactors = FALSE)
+
+# Iterate over unique patient IDs
+for (patient_id in unique_patient_ids) {
+  # Check if the patient ID has a corresponding value in imaging_subset
+  if (patient_id %in% imaging_subset$uofcTempPatientID) {
+    # Add a row with "Sex" as Token and the corresponding value from imaging_subset as Value
+    updated_ocean_subset <- rbind(updated_ocean_subset, data.frame(uofcTempPatientID = patient_id, Age = NA, recordId = NA, Token = "Sex", Value = imaging_subset$Sex[imaging_subset$uofcTempPatientID == patient_id]))
+  } else {
+    # Add a row with "Sex" as Token and NA as Value
+    updated_ocean_subset <- rbind(updated_ocean_subset, data.frame(uofcTempPatientID = patient_id, Age = NA, recordId = NA, Token = "Sex", Value = NA))
+  }
+}
+
+# Combine the updated ocean_subset with the original ocean_subset
+ocean_subset1 <- rbind(ocean_subset, updated_ocean_subset)
+```
+This worked, i verified by filtering for "sex" in "Token". My working df is now ocean_subset1 (which includes sex from imaging_subset) and has 762971 obs.
+
+Double check unique patient ID n = 13187
+```{r}
+n_distinct(ocean_subset1$uofcTempPatientID)
+```
+Confirmed, it's still 13187
+
+Next I'll add "imaging" from "imaging_subset" in the same manner I added "sex"
+```{r}
+# Get unique patient IDs from ocean_subset
+unique_patient_ids <- unique(ocean_subset$uofcTempPatientID)
+
+# Create a new data frame to store the updated ocean_subset
+updated_ocean_subset1 <- data.frame(uofcTempPatientID = character(), Age = character(), recordId = character(), Token = character(), Value = character(), stringsAsFactors = FALSE)
+
+# Iterate over unique patient IDs
+for (patient_id in unique_patient_ids) {
+  # Check if the patient ID has a corresponding value in imaging_subset
+  if (patient_id %in% imaging_subset$uofcTempPatientID) {
+    # Add a row with "imaging" as Token and the corresponding value from imaging_subset as Value
+    updated_ocean_subset1 <- rbind(updated_ocean_subset1, data.frame(uofcTempPatientID = patient_id, Age = NA, recordId = NA, Token = "imaging", Value = imaging_subset$imaging[imaging_subset$uofcTempPatientID == patient_id]))
+  } else {
+    # Add a row with "imaging" as Token and NA as Value
+    updated_ocean_subset1 <- rbind(updated_ocean_subset1, data.frame(uofcTempPatientID = patient_id, Age = NA, recordId = NA, Token = "imaging", Value = NA))
+  }
+}
+
+# Combine the updated ocean_subset with the original ocean_subset
+ocean_subset2 <- rbind(ocean_subset1, updated_ocean_subset1)
+```
+This worked, I confirmed by filtering ocean_subset2 for "imaging" in "Token."  
+My working df is now ocean_subset2 (which includes sex and imaging from surgery_subset and imaging_subset) and has 788748 obs.
+
+Double check patientID is still n = 13187
+```{r}
+n_distinct(ocean_subset2$uofcTempPatientID)
+```
+Confirmed, it's still 13187 meaning I've successfully added available values for sex and imaging from the imaging df. 
+
+Therefore, ocean_subset2 has all the variables I need and I will rename as "ocean_final."
+```{r}
+ocean_final <- ocean_subset2
+```
+I need to identify and remove duplicates. The following code identifies cases where EVERY column is repeated once, twice, thrice, etc. i.e. this code identifies cases that have 1, 2, 3, etc exact copies across all columns (therefore true duplicates)
+```{r}
+all_duplicates <- ocean_final[duplicated(ocean_final[c("uofcTempPatientID", "Age", "recordId", "Token", "Value")]) | duplicated(ocean_final[c("uofcTempPatientID", "Age", "recordId", "Token", "Value")], fromLast = TRUE), ]
+```
+```{r}
+n_distinct(all_duplicates)
+```
+
+n_distinct of this df per ID is 29621 which is consistent with other duplicate identifying codes I ran. One code resulted in >100,000 but didn't differentiate triplicates/quadruplicates etc. Therefore, this method is correct and I'm confident to delete these duplicates. Once deleted, I could run the same identification code and if I get any duplicates then I need to try another approach. 
+```{r}
+cleaned_ocean_final <- ocean_final[!duplicated(ocean_final[c("uofcTempPatientID", "Age", "recordId", "Token", "Value")]) & !duplicated(ocean_final[c("uofcTempPatientID", "Age", "recordId", "Token", "Value")], fromLast = TRUE), ]
+```
+The unique patientID should still be 13187 as in ocean_final.
+```{r}
+n_distinct(cleaned_ocean_final$uofcTempPatientID)
+```
+Correct. The value is 13187.
+
+My working df from this point is cleaned_ocean_final
+
+Removing patients that don't have an "Assessment" Token. This is done by patientID. 
+I know from filtering the df there should be a total of 8,570 cases that have an assessment. Some will be repeated ID's (i.e. not all unique patientID's) because of repeat injury/contralateral injury. 
+```{r}
+cleaned_ocean_final1 <- cleaned_ocean_final %>% group_by(uofcTempPatientID) %>%  filter("Assessment" %in% Token & "Value" != "") %>% ungroup()
+```
+This worked. I filtered for "Assessment" in the "Token" column and still have 8,570 cases. 
+How many unique patient ID's with assessment? (This doesn't tell me much, other than an "n" for my write up, assuming all these cases can be used in the final analysis.)
+```{r}
+n_distinct(cleaned_ocean_final1$uofcTempPatientID)
+```
+n = 7806. This is consistent with numerous previous iterations I've done with the same original dataset which is a positive finding. It means all the cleaning I've done thusfar hasn't removed any cases with the important outcome variable: assessment.
+
+My working df from this point is clean_ocean_final1
+
+Clean out "Consent1/2/3" "WCB" and "MVA" tokens. The remaining tokens are all of use.
+```{r}
+tokens_to_remove <- c("Consent1", "Consent2", "Consent3", "WCB", "MVA")
+
+# Filter out rows with specified token values
+cleaned_ocean_final2 <- cleaned_ocean_final1 %>%
+  filter(!(Token %in% tokens_to_remove))
+```
+Done and confirmed. I added up the filtered values of "Consent" "WCB" and "MVA" in clean_ocean_final1 and they totaled the difference in obs between clean_ocean_final1 & 2. 
+
+**My working df from this point is now clean_ocean_final2**
+Rename patientID column for simplicity. 
+```{r}
+cleaned_ocean_final2 <- cleaned_ocean_final2 %>%
+  rename(patientID = uofcTempPatientID)
+```
+
+Remove rows that have "NA" in the "Value" column for the Tokens "Sex" and "imaging"
+```{r}
+cleaned_ocean_final3 <- cleaned_ocean_final2 %>% filter(!(Token %in% c("Sex", "imaging") & is.na(Value)))
+```
+
+Import the Assessment spreadsheet that has been completely cleaned, rename columns "uofcTempPatientID" to "patientID", "Token" to "Asessment", and only keep "patientID" and "Token" columns:
+```{r}
+cleaned_assessment <- read_excel("C:/Users/jorda/OneDrive/Desktop/MSc Documents/Data/Manual Cleaning of Assessment_completed.xlsx")
+cleaned_assessment <- cleaned_assessment %>% rename(patientID = uofcTempPatientID)
+cleaned_assessment <- cleaned_assessment %>% rename(Assessment = Token)
+cleaned_assessment <- cleaned_assessment %>% select(patientID, Assessment)
+```
+Next I need to combine "cleaned_assessment" with "cleaned_ocean_final3" by patientID and replace the oceanfinal3 Assessment value with the cleaned_assesment Assessment value.
+First I'll remove the blank rows that came from Excel and are currently N/A and N/A in the columns
+```{r}
+cleaned_assessment <- cleaned_assessment[complete.cases(cleaned_assessment), ]
+```
+The blank rows are all removed now. 
+
+I'll check the unique patientID's for each df:
+```{r}
+n_distinct(cleaned_assessment$patientID)
+n_distinct(cleaned_ocean_final3$patientID)
+```
+cleaned_assessment has 7791 unique patientIDs
+cleaned_ocean_final3 has 7806 unique patientIDs.
+The data extracted that was manually cleaned in Excel that became "cleaned_assessment" has the proper number of unique patientID's. It was found in that spreadsheet that there were unique patientID's with no useful assessment data (e.g. "3 weeks post-injury") and therefore those rows were deleted, resulting in a number <7806. 
+This means there are 15 unique patientID's that will not have a new, manually cleaned Assessment value. 
+
+Next I'll join the "cleaned_assessment" df with my "cleaned_ocean_final3" df by the patientID
+```{r}
+cleaned_ocean_assessment <- left_join(cleaned_ocean_final3, cleaned_assessment, by = "patientID")
+```
+
+Check to see that there are indeed 15 unique patientID's missing a value in the Assessment column (which is the manually cleaned value)
+```{r}
+missing_assessment_rows <- cleaned_ocean_assessment[is.na(cleaned_ocean_assessment$Assessment), ]
+num_unique_patientIDs <- length(unique(missing_assessment_rows$patientID))
+print(num_unique_patientIDs)
+```
+Correct, there are 15 unique patientID's that have no value for "Assessment" column. I can proceed with removing those 15. 
+```{r}
+cleaned_ocean_assessment1 <- subset(cleaned_ocean_assessment, !is.na(Assessment))
+```
+Confirm there should now be 7791 unique patientID's in my working df
+```{r}
+n_distinct(cleaned_ocean_assessment1$patientID)
+```
+Correct, there are 7791 unique patientID's in my newest, working df: "cleaned_ocean_assessment1"
+
+Next I need to replace the original token value of "Assessment" that is not cleaned with the value from the COLUMN "Assessment"
+```{r}
+cleaned_ocean_assessment1 <- cleaned_ocean_assessment1 %>% mutate(Value = ifelse(Token == "Assessment", Assessment, Value))
+```
+After viewing this df and filtering for "Assessment" in the Token column, I see that the contents from the "Assessment" column have been accurately transferred into the "Assessment" token value. 
+I can now remove the "Assessment" COLUMN:
+```{r}
+cleaned_ocean_assessment1 <- cleaned_ocean_assessment1 %>% select(-Assessment)
+```
+
+****Problem with inputting these manually cleaned new assessment values is that they could not be attached to a recordID which means patients seen for more than one initial appointment (repeat injury/contralateral knee injury) cannot be used because their ocean data, while the questions are still connected to a recordID, are not associated with a particular outcome (Assessment). ****
+
+I will find out how many patients have more than one "Assessment" token value, meaning they have been given an assessment more than once.
+```{r}
+num_assessment_tokens <- cleaned_ocean_assessment1 %>% group_by(patientID) %>% summarise(num_tokens = n_distinct(Assessment)) %>% filter(num_tokens > 1) %>% nrow()
+print(num_assessment_tokens)
+```
+The answer is 254. This means there are 254 patients who were seen for and given a meaningful assessment value for a repeat or contralateral knee injury. 
+These 254 patients will remain in the count (7791) but the duplicates need to be removed.
+*****I know the manually cleaned assessment value, now in the assessment token value cell, is the most recent (and accurate) diagnosis therefore all the of the repeated ocean questions (e.g. pop, swelling, etc) with lower (earlier) recordID values can be removed.*****
+
+I'll return to trying to remove the duplicates after adding the MOI data.
+```{r}
+library(readxl)
+cleaned_MOI <- read_excel("C:/Users/jorda/OneDrive/Desktop/MSc Documents/Data/Manual Cleaning of MOI_completed.xlsx")
+View(cleaned_MOI)
+```
+Rename the uofctemppatientid as patientID to be consistent with other df's. 
+```{r}
+cleaned_MOI <- cleaned_MOI %>%
+  rename(patientID = uofcTempPatientID)
+```
+Remove unnecessary columns:
+```{r}
+cleaned_MOI <- select(cleaned_MOI, -Ski, -`Contact sport/activity`, -`Non-Contact sport/activity`, -Column1, -Token, -Value)
+```
+Remove rows where patientID is blank:
+```{r}
+cleaned_MOI <- cleaned_MOI %>% filter(patientID != "")
+```
+Replace the "TBD" values with "No" as this is now true after the manual cleaning of the excel spreadsheet.
+```{r}
+cleaned_MOI <- cleaned_MOI %>% mutate_all(~ ifelse(. == "TBD", "No", .))
+```
+
+Pivot cleaned_MOI longer before joining with cleaned_ocean_assessment1:
+```{r}
+cleaned_MOI_long <- cleaned_MOI %>% pivot_longer(cols = -patientID, names_to = "Token", values_to = "Value")
+```
+Rename columns that are same in the two df's prior to joining:
+```{r}
+cleaned_MOI_long <- cleaned_MOI_long %>% rename(Token_MOI = Token)
+cleaned_MOI_long <- cleaned_MOI_long %>% rename(Value_MOI = Value)
+```
+
+Join cleaned_MOI_long to cleaned_ocean_assessment1 by patientID:
+```{r}
+cleaned_assessment_MOI <- cleaned_ocean_assessment1 %>% left_join(cleaned_MOI_long, by = "patientID")
+```
+Then change Age to a row in "Token" and it's corresponding value into "Value" column
+```{r}
+cleaned_assessment_MOI$Age <- as.character(cleaned_assessment_MOI$Age)
+
+# Create new rows for Age
+age_data <- cleaned_assessment_MOI %>%
+  select(patientID, recordId) %>%
+  mutate(Token = "Age", Value = cleaned_assessment_MOI$Age)
+
+# Bind the new rows to the original dataframe and arrange
+cleaned_assessment_MOI <- cleaned_assessment_MOI %>%
+  select(-Age) %>% # Remove the Age column from the original dataframe
+  bind_rows(age_data) %>%
+  arrange(patientID, Token)
+```
+I filtered the df and indeed found age as a Token item with it's corresponding value in the "Value" column.
+
+Now to do the same for the Token_MOI and Value_MOI.
+```{r}
+# Create a dataframe with Token_MOI and Value_MOI
+moi_data <- cleaned_assessment_MOI %>%
+  select(patientID, recordId, Token = Token_MOI, Value = Value_MOI)
+
+# Combine the original Token/Value pairs with the MOI Token/Value pairs
+combined_assessment_and_MOI <- cleaned_assessment_MOI %>%
+  select(patientID, recordId, Token, Value) %>%
+  bind_rows(moi_data) %>%
+  arrange(patientID, recordId, Token)
+```
+This worked, I filtered and confirmed I have all the original Tokens and their Values plus the new Tokens and Values from MOI as rows (e.g. slip, sport, trip, collapse, etc).
+
+Now I need to remove rows that are duplicated.
+```{r}
+combined_assessment_and_MOI <- combined_assessment_and_MOI %>% distinct()
+```
+This cleaned things nicely. I filtered through all the Tokens and found indeed values for each patientID. Not every patient has every token (e.g. previous surgery) but I'm confident in the list arrived at. 
+I did a quick check of n_distinct patientID's and still have the 7791 number I should have meaning nothing funny went wrong in all this transformation work. 
+
+Next there are rows with blank Token and Value items, these can be removed as they provide no useful information. 
+```{r}
+combined_assessment_and_MOI <- combined_assessment_and_MOI %>%  filter(Token != "" & Value != "")
+```
+This worked. There are no rows that have blank Token AND Value cells. There are, however, rows with blank recordId or blank value (e.g. Sport token with blank value means there was no sport in the MOI). These are still valuable because there is token or value items.
+
+In discussion with B Lau who did much of the Sport column coding in the MOI spreadsheet, the most appropriate value to input into blank value cells is "other or no activity/sport" because there were some obscure sports and activities that were not common enough to create a category; however, tehre were also plenty of MOIs that did not involve any activity/sport (e.g. tripping on stairs at home, walking, etc). 
+Therefore, replacing blank value for "Sport" token:
+
+Line 309 made a mistake. Therefore I started the last few steps over from df_combined which hadn't had the duplicates removed yet but was 4 columns. 
+```{r}
+df_combined <- df_combined %>% distinct()
+```
+This led to 870,222 rows which was consistent with df "combined_assessment_and_MOI" I was working with until I used line 309 and it removed rows with Sport and a blank value for sport (which I wanted to replace with "other or no...").
+
+Below is the proper code to replace the blank Sport values with "other...":
+```{r}
+df_combined <- df_combined %>% mutate(Value = ifelse(Token == "Sport" & is.na(Value), "other or no activity/sport", Value))
+```
+Confirmed. This maintained the number of rows (870,222) and I filtered for sport and found that there were now values of "other or no activity/sport".
+Let's rename this df_combined as df_working and continue.
+```{r}
+df_working <- df_combined 
+```
+In filtering I noticed some typos in Sport values. Therefore let's investigate the unique values of the Sport Token and correct any typos (e.g. "occer" for "soccer")
+```{r}
+# Filter rows where Token is "Sport" and extract unique values
+unique_sport_values <- df_working %>%
+  filter(Token == "Sport") %>%
+  distinct(Value)
+View(unique_sport_values)
+```
+I copied this list into excel and found approximately 50 total misspellings or different case-sensitive versions. Below will be the codes for cleaning each.
+```{r}
+df_working$Value <- gsub("Bandminton", "Badminton", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("Baseball", "Base", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("Climbing", "Climb", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("Curl", "Curling", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("Dancing", "Dance", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("Dirt Bike", "Dirt bike", df_working$Value)
+df_working$Value <- gsub("DIrt bike", "Dirt bike", df_working$Value)
+df_working$Value <- gsub("Dit Bike", "Dirt bike", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("exercise", "Exercise", df_working$Value)
+df_working$Value <- gsub("exerciseing", "Exercise", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("Firsbee", "Frisbee", df_working$Value)
+df_working$Value <- gsub("Fristbee", "Frisbee", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("Gymanstics", "Gymnastics", df_working$Value)
+df_working$Value <- gsub("Gymnastic", "Gymnastics", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("HIke", "Hiking", df_working$Value)
+df_working$Value <- gsub("Hike", "Hiking", df_working$Value)
+df_working$Value <- gsub("HIking", "Hiking", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("Hocky", "Hockey", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("Motocrss", "Motocross", df_working$Value)
+df_working$Value <- gsub("Motocvross", "Motocross", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("occer", "Soccer", df_working$Value)
+df_working$Value <- gsub("soccer", "Soccer", df_working$Value)
+df_working$Value <- gsub("Socer", "Soccer", df_working$Value)
+```
+
+```{r}
+df_working$Value <- gsub("Ringete", "Ringette", df_working$Value)
+```
+
+```{r}
+df_working$Value <- gsub("Roller", "Rollerblade", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("Rugy", "Rugby", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("running", "Running", df_working$Value)
+df_working$Value <- gsub("runner", "running", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("Skateboard", "Skateboarding", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("ski", "Skiing", df_working$Value)
+df_working$Value <- gsub("Ski", "Skiing", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("Skting", "Skating", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("Snowabord", "Snowboarding", df_working$Value)
+df_working$Value <- gsub("Snowboard", "Snowboarding", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("Skidoo", "Snomobiling", df_working$Value)
+df_working$Value <- gsub("Snomobile", "Snomobiling", df_working$Value)
+df_working$Value <- gsub("Snowmobile", "Snomobiling", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("surg", "Surf", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("Tobagan", "Tobogganing", df_working$Value)
+df_working$Value <- gsub("Tobaganning", "Tobogganing", df_working$Value)
+df_working$Value <- gsub("Tobaggan", "Tobogganing", df_working$Value)
+df_working$Value <- gsub("Tobbaggan", "Tobogganing", df_working$Value)
+df_working$Value <- gsub("Tobboggan", "Tobogganing", df_working$Value)
+df_working$Value <- gsub("Toboggan", "Tobogganing", df_working$Value)
+```
+
+
+```{r}
+df_working$Value <- gsub("VB", "Volleyball", df_working$Value)
+```
+
+```{r}
+df_working$Value <- gsub("Weight lifting", "Weightlifting", df_working$Value)
+df_working$Value <- gsub("Weight Lifting", "Weightlifting", df_working$Value)
+```
+
+```{r}
+df_working$Value <- gsub("X-ski", "Crosscountry Skiing", df_working$Value)
+df_working$Value <- gsub("X Ski", "Crosscountry Skiing", df_working$Value)
+df_working$Value <- gsub("X ski", "Crosscountry Skiing", df_working$Value)
+```
+```{r}
+df_working$Value <- gsub("BB", "Basketball", df_working$Value)
+```
+
+```{r}
+df_working$Value <- gsub("MA", "Martial Arts", df_working$Value)
+```
+Soccer had two S's at the start: SSoccer. Unsure how this happened but below fixed to "Soccer"
+```{r}
+ df_working$Value <- gsub("SSoccer", "Soccer", df_working$Value)
+```
+10 Duplicates remained at this time, so I removed them.
+```{r}
+df_working <- distinct(df_working)
+```
+I need to remove the rows with blank token and value (this was done earlier but before the error on line ~309).
+```{r}
+df_working <- df_working %>% filter(Token != "" | !is.na(Token) | Value != "" | !is.na(Value))
+```
+Now the sports have been cleaned, the blanks are removed, the duplicates are removed, I need to deal with the recordId column. This and the age columns served to differentiate between the repeat/contralateral injury patients (i.e. more than one true, unique assessment value). However, due to the nature of cleaning the assessment data, there is no longer an ability to determine which assessment corresponds with which recordId. During the manual cleaning the highest recordId Assessment was taken when there were duplicates or near duplicates.
+Therefore, for patients with more than one set of data (namely physical exam and assessment), the lowest recordId should be removed. 
+I can do this by organizing the patients' data by descending recordId then removing the recordId column then deleting duplicated Tokens, NOT deleting duplicated Token and Value combinations. 
+I can also do it with the following code:
+```{r}
+df_working <- df_working %>% group_by(patientID, Token) %>% filter(recordId == max(recordId) | is.na(recordId)) %>%  ungroup()
+```
+I called n_distinct for patientID and got 7791, this is correct. 
+To ensure I didn't lose any Tokens, I compared the number of unique tokens in df_test (which was a copy of df_working prior to running code of removing all but latest recordId copies) and found both to be 83. There are 83 unique tokens before and after removing the duplicates with the code in line 516.
+```{r}
+n_distinct(df_test$Token)
+n_distinct(df_working$Token)
+```
+Check for any duplicates that have arisen
+```{r}
+duplicates <- df_working[duplicated(df_working), ]
+
+print(duplicates)
+```
+Excellent, there are 0 duplicates.
+
+Now that I am confident I have all the Tokens for the most recent visit (which contains the most accurate Assessment) for all 7791 patients who indeed have an assessment I am ready to pivot the table and run my decision tree! 
+
+There are still a patientIDs with more than one value for a Token. I will find out how many once the table is pivoted. This is due to the fact that there was a different answer to a token (i.e. not a duplicate) and the recordId was the same. For example patientID 85815 has two assessment tokens, both with a recordId of 6406.
+
+At this time the recordId has served it's purpose and is no longer needed and can be removed prior to pivoting the table:
+```{r}
+df_working <- df_working %>% select(-recordId)
+```
+I pivotted the table and got lists which make an analysis impossible due to the type of content in some cells. There were approximately 1600 list-cols from pivoting df_working at this point. From a glance and about 100 rows it seemed that all tokens had the chance to have list-cols. 
+
+Therefore, these can be grouped together, seperated by a column and dealt with differently after a pivot. Let's first group the multiples together so they are not "list-cols" when pivoted:
+```{r}
+df_working <- df_working %>% group_by(patientID, Token) %>% summarise(Value = paste(Value, collapse = ", ")) %>% ungroup()
+```
+
+Next I'll pivot the table:
+```{r}
+df_working_wider <- df_working %>% pivot_wider(names_from = Token, values_from = Value)
+```
+I can see there is 7791 rows (of 84 variables). Both of these numbers are correct. n_distinct of the patientID's has been and should be 7791 and the number of unique tokens was 83 (+1 patientID) is 84. Excellent.
+
+I have the problem that when I pivoted, those who have more than one unique assessment that wasn't removed in the process using recordId now have two seperate and unique knee injury diagnoses on one line, sepereated by a ",". This could be that some patients received a contralateral knee diagnosis on their visit for their knee on interest (with corresponding ocean data that is helpful for this analysis, e.g. someone comes in for a left knee ACL and meniscal tear and they are also given a diagnosis of right knee OA.It could also have been patients who were seen more than once for unique knee injuries that somehow had the same recordId number and therefore weren't screened out in  the previous process. 
+Because some have two of the same knee, for example "LEFT; ACL; MEN, LEFT MCL, PCL, ?PFI" I cannot know which of these is corresponding to the rest of the history questions. For those with unique bilateral diganoses, I cannot use the current knee complaint because this has been shown to be unreliable (i.e. not every patient who selected "Right" or "Left" for the current knee injury received a diagnosis on that knee). Therefore, I must exclude these cases.
+In simply filtering, I found 314 commas. However, while looking through these 314 I noticed that in some cases this was simply a typo and used instead of the regular semicolon. Therefore, I can filter out those with additional diagnoses to be removed from those with typos by creating and using the following string pattern recognition:
+```{r}
+pattern <- ",\\s*(RIGHT|LEFT|right|left|Right|Left)"
+```
+This pattern gets all the reasonable case-sensitive variations of "left" and "right" which are preceded by a "," and a space. This is because when the values were combined during pivoting, I specified that any list-col values would be separated by a comma then space.
+
+Next, I will identify how many rows have this pattern. I should be less than 314 as I manually checked most of these and found a number of typos rather than list-col Assessments.
+```{r}
+rows_to_delete <- df_working_wider %>%
+  filter(str_detect(Assessment, pattern))
+```
+Good, there are 253 rows (i.e. less than 314). These are the ones to remove due to the reasons detailed in the above lengthy paragraph. Now I'll remove these 253 rows. I should result with 7791-253 = 7538 rows.  
+```{r}
+df_working_wider <- df_working_wider %>%
+  filter(!str_detect(Assessment, pattern))
+```
+Excellent, I have 7538 rows remaining. 
+
+To continue cleaning the data I'll first remove irrelevent columns. Some of the columns are irrelevant for decision tree analysis (or other analyses) e.g. MOI, ACT, OCC. 
+To view the 84 columns:
+```{r}
+colnames(df_working_wider)
+```
+Once I remove irrelevant rows, I'll create df's of each variable to see the unique values. I should see consistencies like "yes/no" "immediate/no" "physiotherapy,massagetherpy/etc". This will help me identify and remove the cells that somehow have erroneous data e.g. Token = squat, value = non-smoker.
+These cases don't need to be deleted, but the specific value for that column can be deleted since not all cases need to have (nor in truth do have) all 84 variables for the analysis. 
+
+Irrelevent columns after review (see excel spreadsheet "ML variables as columns cleaning decisions")
+```{r}
+df_working_wider <- df_working_wider %>% select(-ACT, -MOI, -OCC, -Plan, -SmokerQuitYears, -SmokerYears, -SixWeeks, -TenderToPalpate, -Xrays, -imaging, -AlocholDrinksPerWeek, -PreviousDOI, -AdditionalPreviousSurgeryDate, -AdditionalPreviousSurgeryType, -PMT, -AKIC, -`hip xray today`, -XraySMCView, -Ant.Drawer, -DOI)
+```
+19 total removed therefore 65 columns remaining from the original 84. 
+
+I'll use the below code substituting each of the 65 columns into the code for viewing and further cleaning. Each n in "unique_values" should total 7538 because blanks are also included in the below code. Notes will be stored in the excel spreadsheet mentioned recently above. Any manipulations will be below in chunk(s).  
+```{r}
+unique_values <- df_working_wider %>% group_by(CC) %>%  summarise(count = n()) %>%  arrange(desc(count))
+```
+
+After some further column inspection, I'll remove the below columns as well. See rationale in excel spreadsheet listed a few chunks above. 
+```{r}
+df_working_wider <- df_working_wider %>% select(-CT, -XraysAndUS)
+##Realized later DOI alone is of no utility
+df_working_wider <- df_working_wider %>% select(-DOI)
+```
+Total now of 62 columns. 
+
+*****Alignment (see excel spreadsheet notes)*****
+```{r}
+accepted_values <- c("neutral", "valgus", "varus", "slight varus", "slight valgus")
+df_working_wider <- df_working_wider %>%  mutate(Alignment = if_else(Alignment %in% accepted_values, Alignment, ""))
+```
+Confirmed this code worked because "accepted_values" were the same in my "unique_values" code above, all new totaled 7538 as it should.
+
+*****Bent knee*****
+```{r}
+df_working_wider <- df_working_wider %>%
+  mutate(
+    `Bent knee` = if_else(`Bent knee` %in% c("NA", "No, NA"), "", `Bent knee`),
+    `Bent knee` = if_else(`Bent knee` == "", NA_character_, `Bent knee`) )
+```
+
+*****CC*****
+```{r}
+df_working_wider <- df_working_wider %>%
+  mutate(
+    CC = case_when(
+      CC %in% c("Pain", "Instability", "Loss of Function", "Swelling", "Stiffness", NA) ~ CC,
+      TRUE ~ NA_character_
+    )
+  )
+```
+
+*****Collapse/buckle/givingway*****
+```{r}
+df_working_wider <- df_working_wider %>%
+  mutate(
+    `Collapse/Buckle/Giving way` = case_when(
+      tolower(`Collapse/Buckle/Giving way`) == "no" ~ "No",
+      `Collapse/Buckle/Giving way` %in% c("No", "yes", NA) ~ `Collapse/Buckle/Giving way`,
+      TRUE ~ NA_character_
+    )
+  )
+```
+
+*****Current Knee*****
+```{r}
+df_working_wider <- df_working_wider%>%
+  mutate(
+    CurrentKnee = case_when(
+      tolower(CurrentKnee) %in% c("left", "right") ~ toupper(CurrentKnee),
+      CurrentKnee %in% c("Left", "Right", NA) ~ CurrentKnee,
+      TRUE ~ NA_character_
+    )
+  )
+```
+
+*****Current Knee Straighten*****
+```{r}
+df_working_wider <- df_working_wider %>%
+  mutate(
+    CurrentKneeStraighten = case_when(
+      str_detect(tolower(CurrentKneeStraighten), "yes.*able to straighten knee at time of injury") ~ "Yes",
+      str_detect(tolower(CurrentKneeStraighten), "able to straighten at time of injury") ~ "Yes",
+      str_detect(tolower(CurrentKneeStraighten), "not.*able to straighten knee at time of injury") ~ "No",
+      str_detect(tolower(CurrentKneeStraighten), "not able to straighten at time of injury") ~ "No",
+      str_detect(tolower(CurrentKneeStraighten), "yes") ~ "Yes",
+      str_detect(tolower(CurrentKneeStraighten), "not") ~ "No",
+      TRUE ~ NA_character_
+    )
+  )
+```
+
+*****Current LOP*****
+```{r}
+df_working_wider <- df_working_wider %>%
+  mutate(
+    CurrentLOP = case_when(
+      tolower(CurrentLOP) %in% c("inner side of the knee", "inside of the knee", "outside of the knee", 
+                                 "deep in the knee", "behind of the knee", "in front of the knee", "none", NA) ~ CurrentLOP,
+      # Inner side of the knee
+      tolower(CurrentLOP) %in% c("medial", "inside of the knee- medial", "medially", "inner side of the knee -- improving", 
+                                  "inside of the knee-medial", "medial knee") ~ "Inner side of the knee",
+      # Inside of the knee
+      tolower(CurrentLOP) == "inside of the knee" ~ "Inside of the knee",
+      # Outside of the knee
+      tolower(CurrentLOP) %in% c("lateral", "outside of the knee", "outside of knee", "outside", 
+                                  "outside of the knee -- improving", "outside of the knee- lateral") ~ "Outside of the knee",
+      # Deep in the knee
+      tolower(CurrentLOP) %in% c("deep in knee", "deep", "deep in the knee") ~ "Deep in the knee",
+      # Behind of the knee
+      tolower(CurrentLOP) %in% c("back of the knee", "inner side of the knee, posterior", "posterior", 
+                                  "back of knee", "behind knee", "back of the knee") ~ "Behind of the knee",
+      # In front of the knee
+      tolower(CurrentLOP) %in% c("front of knee", "retropatellar", "front of the knee", "anteriorly", 
+                                  "anterior", "under patella", "in front of the knee", "front of the knee") ~ "In front of the knee",
+      # None
+      tolower(CurrentLOP) %in% c("none", "no pain", "no pain today", "inside of the knee- no pain", 
+                                  "none", "no pain", "no current knee pain", "no current pain") ~ "None",
+      TRUE ~ NA_character_
+    )
+  )
+
+##THIS WAS LENGTHY AND SOME WERE MISSED, THEREFORE ADDITIONAL CLEANING BELOW##
+
+df_working_wider <- df_working_wider %>%  mutate(
+CurrentLOP = ifelse(
+trimws(tolower(CurrentLOP)) %in% c("inside of the knee"), "Inside of the knee",
+ifelse(
+trimws(tolower(CurrentLOP)) %in% c("none"), "None",
+ifelse(
+trimws(tolower(CurrentLOP)) %in% c("deep in the knee"), "Deep in the knee",
+ifelse(
+trimws(tolower(CurrentLOP)) %in% c("outside of the knee"), "Outside of the knee",
+ifelse(
+trimws(tolower(CurrentLOP)) %in% c("in front of the knee"), "In front of the knee",
+ifelse(
+trimws(tolower(CurrentLOP)) %in% c("none"), "None",
+ifelse(
+trimws(tolower(CurrentLOP)) %in% c("behind of the knee"), "Behind of the knee",
+ifelse(
+trimws(tolower(CurrentLOP)) %in% c("inner side of the knee"), "Inner side of the knee",
+                    CurrentLOP  # Keep other values unchanged
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+
+```
+
+*****Diagnostics*****
+```{r}
+df_working_wider <- df_working_wider %>%
+  mutate(
+    Diagnostics = case_when(
+      grepl("\\bx-?rays?\\b|\\bxr\\b|\\bmr(i|\\.)?|\\bus|\\bu/s|ultrasound\\b", tolower(Diagnostics)) ~ "Yes",
+      grepl("\\byes\\b", tolower(Diagnostics)) ~ "Yes",
+      grepl("\\bno\\b", tolower(Diagnostics)) ~ "No",
+      grepl("\\bnone\\b", tolower(Diagnostics)) ~ "No",
+      TRUE ~ NA_character_
+    )
+  )
+```
+
+*****Dial Test*****
+```{r}
+df_working_wider <- df_working_wider %>%
+  mutate(
+    `Dial Test` = ifelse(`Dial Test` == "[positive|negative]", NA_character_, `Dial Test`)
+  )
+
+df_working_wider <- df_working_wider %>%
+  mutate(
+    `Dial Test` = case_when(
+      grepl("\\bpositive\\b", `Dial Test`, ignore.case = TRUE) ~ "positive",
+      grepl("\\bnegative\\b", `Dial Test`, ignore.case = TRUE) ~ "negative",
+      grepl("\\bunable\\b", `Dial Test`, ignore.case = TRUE) ~ NA_character_,
+      grepl("NT", `Dial Test`, ignore.case = TRUE) ~ NA_character_,
+      grepl("\\bdid not\\b|\\bdidn't\\b", `Dial Test`, ignore.case = TRUE) ~ NA_character_,
+      `Dial Test` %in% c("n/a", "NA") ~ NA_character_,
+      TRUE ~ NA_character_
+    )
+  )
+```
+
+*****Direct Blow******
+```{r}
+df_working_wider <- df_working_wider %>%
+  mutate(
+    `Direct Blow` = case_when(
+      `Direct Blow` == "NA" ~ NA_character_,
+      `Direct Blow` == "No, yes" ~ NA_character_,
+      `Direct Blow` == "yes, No" ~ NA_character_,
+      `Direct Blow` == "No, NA" ~ NA_character_,
+      TRUE ~ `Direct Blow`
+    )
+  )
+```
+
+*****Effusion*****
+```{r}
+df_working_wider <- df_working_wider %>%
+  mutate(
+    Effusion = ifelse(grepl("\\[none\\|trace\\|mild\\|moderate\\|large\\]", Effusion, ignore.case = TRUE), NA, Effusion)
+  )
+
+df_working_wider <- df_working_wider %>%
+  mutate(
+    Effusion = ifelse(grepl("\\blarge\\b", Effusion, ignore.case = TRUE), "large",
+                      ifelse(grepl("\\bmoderate\\b", Effusion, ignore.case = TRUE), "moderate",
+                             ifelse(grepl("\\bmod\\b", Effusion, ignore.case = TRUE), "moderate",
+                                    ifelse(grepl("\\bmild\\b", Effusion, ignore.case = TRUE), "mild",
+                                           ifelse(grepl("\\btrace\\b", Effusion, ignore.case = TRUE), "trace",
+                                                  ifelse(grepl("\\bnone\\b", Effusion, ignore.case = TRUE), "none",
+                                                         ifelse(grepl("\\bunable\\b", Effusion, ignore.case = TRUE), NA,
+                                                                ifelse(grepl("\\bdifficult\\b", Effusion, ignore.case = TRUE), NA,
+                                                                       ifelse(grepl("\\bneg\\b", Effusion, ignore.case = TRUE), "negative",
+                                                                              ifelse(grepl("\\b\\w+\\b", Effusion, ignore.case = TRUE), NA, Effusion)
+                                                                              )
+                                                                       )
+                                                                )
+                                                         )
+                                                  )
+                                           )
+                                    )
+                             )
+                      )
+  )
+```
+
+*****Fall*****
+```{r}
+df_working_wider <- df_working_wider%>%
+    mutate(
+        `Fall` = case_when(
+            `Fall` == "NA" ~ NA_character_,
+            `Fall` == "No, yes" ~ NA_character_,
+            `Fall` == "yes, No" ~ NA_character_,
+            `Fall` == "No, NA" ~ NA_character_, Fall == "no" ~ "No", Fall == "tbd" ~ NA_character_,
+            TRUE ~ `Fall`
+        )
+    )
+```
+
+*****Full squat*****
+```{r}
+df_working_wider <- df_working_wider %>%
+  mutate(`Full Squat` = ifelse(`Full Squat` == "[yes|no]", NA_character_, `Full Squat`))
+
+df_working_wider <- df_working_wider %>%
+  mutate(`Full Squat` = ifelse(grepl("yes", `Full Squat`, ignore.case = TRUE), "yes",
+                               ifelse(grepl("no", `Full Squat`, ignore.case = TRUE), "no",
+                                      ifelse(grepl("unable", `Full Squat`, ignore.case = TRUE), "no",
+                                             ifelse(grepl("didn't", `Full Squat`, ignore.case = TRUE), "no",
+                                                    ifelse(`Full Squat` %in% c("yes", "no"), NA_character_, NA_character_)
+                                                    )
+                                             )
+                                      )
+                               )
+         )
+```
+
+*****Hyperext*****
+```{r}
+df_working_wider <- df_working_wider %>%
+  mutate(Hyperext = case_when(
+    tolower(Hyperext) %in% c("no", "yes") ~ tolower(Hyperext),
+    tolower(Hyperext) %in% c("yes, no", "no, yes", "no, na") ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+```
+
+*****Hyperflex*****
+```{r}
+df_working_wider <- df_working_wider %>%
+  mutate(Hyperflex = case_when(
+    tolower(Hyperflex) %in% c("no", "yes") ~ tolower(Hyperflex),
+    tolower(Hyperflex) %in% c("yes, no", "no, yes", "no, na") ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+```
+
+*****Immediate Pain*****
+```{r}
+df_working_wider <- df_working_wider %>%
+  mutate(ImmediatePain = ifelse(tolower(ImmediatePain) %in% c("immediate pain", "immediate pain", "immediate pain"), "Yes", ImmediatePain))
+
+unique_values <- unique(df_working_wider$ImmediatePain)
+values_to_transform <- unique_values[!(tolower(unique_values) %in% c("yes", "no", "na"))]
+df_working_wider <- df_working_wider %>%
+  mutate(ImmediatePain = ifelse(tolower(ImmediatePain) %in% c("immediate pain", "immediate pain", "immediate pain"), "Yes", ImmediatePain),
+         ImmediatePain = ifelse(tolower(ImmediatePain) %in% tolower(values_to_transform), NA_character_, ImmediatePain))
+
+df_working_wider$ImmediatePain <- ifelse(df_working_wider$ImmediatePain == "NA", NA_character_, df_working_wider$ImmediatePain)
+```
+
+*****ImmediateSwelling*****
+```{r}
+df_working_wider <- df_working_wider %>%
+  mutate(ImmediateSwelling = case_when(
+    tolower(ImmediateSwelling) %in% c("immediate swelling", "immediate swelling", "immediate swelling") ~ "Yes",
+    tolower(ImmediateSwelling) == "yes" ~ "Yes",
+    tolower(ImmediateSwelling) == "no" ~ "No",
+    tolower(ImmediateSwelling) == "immediate swelling, no" ~ "No",
+    tolower(ImmediateSwelling) == "na" ~ NA_character_,
+    TRUE ~ ImmediateSwelling
+  ))
+df_working_wider <- df_working_wider %>%
+  mutate(ImmediateSwelling = case_when(
+    ImmediateSwelling %in% c("Yes", "No") ~ ImmediateSwelling,
+    TRUE ~ NA_character_
+  ))
+```
+
+*****Initial LOP******
+```{r}
+df_working_wider <- df_working_wider %>%
+  mutate(
+    InitialLOP = case_when(
+      tolower(InitialLOP) %in% c("inside of the knee- medial", "medially", "medial") ~ "Inner side of the knee",
+      tolower(InitialLOP) %in% c("general knee pain", "whole knee", "all over knee", "general knee", 
+                                 "inside of the knee- entire knee", "general", "generalized knee pain", 
+                                 "general pain", "entire knee", "generalized pain", "generalized knee") ~ "generalized",
+      tolower(InitialLOP) %in% c("deep in the knee", "deep in knee", "deep", "deep of the knee", "deep inside of the knee") ~ "Deep in the knee",
+      tolower(InitialLOP) %in% c("front of knee", "front of the knee", "front of the knee", 
+                                 "anterior", "anteriorly", "in front of knee", "retropatellar") ~ "In front of the knee",
+      tolower(InitialLOP) %in% c("outer side of the knee", "lateral", "laterally", "outside of the knee- lateral", 
+                                 "outside", "outside of knee", "lateral knee") ~ "Outside of the knee",
+      tolower(InitialLOP) == "inside of the knee" ~ "Inside of the knee",
+      grepl("none", tolower(InitialLOP)) ~ "None",
+      InitialLOP %in% c("Inner side of the knee", "Inside of the knee", "Outside of the knee",
+                        NA, "Deep in the knee", "In front of the knee", "Behind of the knee", "generalized", "None") ~ InitialLOP,
+      TRUE ~ "other combination"
+    )
+  )
+```
+
+*****Injury Description (trama, progressive, unknown)*****
+```{r}
+df_working_wider <- df_working_wider%>%
+  mutate(
+    InjuryDescription = case_when(
+      InjuryDescription == "NA" ~ NA_character_,
+      InjuryDescription == "There was ONE specific event causing my knee injury (ie. slip and fall)" ~ "There was a specific event leading to my injury (e.g., slip and fall)",
+      InjuryDescription == "There was a specific event leading to my injury (e.g., slip and fall) -" ~ "There was a specific event leading to my injury (e.g., slip and fall)",
+      TRUE ~ InjuryDescription
+    )
+  )
+```
+
+*****Jump/Land*****
+```{r}
+df_working_wider <- df_working_wider %>%
+  mutate(
+    `Jump/Land` = case_when(
+      `Jump/Land` %in% c("yes, No", "No, yes", "No, NA", "yes, NA", "NA") ~ NA_character_,
+      TRUE ~ `Jump/Land`
+    )
+  )
+```
+
+*****Lachman*****
+```{r}
+df_test_wider <- df_test_wider %>%
+  mutate(
+    Lachman = ifelse(str_detect(Lachman, "no ssd"), "no ssd", Lachman),
+    Lachman = ifelse(str_detect(tolower(Lachman), "unable"), NA_character_, Lachman)
+  )
+##POTENTIALLY MORE TO BE DONE ON THIS.
+```
+More could be done somehow to quantify the mm's used. However, the challenge is that the numbers could say 4mm left firm and 4mm right firm which indicates no ACL tear. However 4mm ssd is a positive finding and likely indicates an ACL tear....
+
+*****McMurray*****
+```{r}
+df_working_wider <- df_working_wider %>%
+  mutate(
+    McMurray = ifelse(str_detect(tolower(McMurray), "unable"), "Unable", McMurray)
+  )
+###
+df_working_wider <- df_working_wider %>%
+  mutate(
+    McMurray = ifelse(str_detect(tolower(McMurray), "negative, no thud, no pain"), "negative", McMurray)
+  )
+###
+df_working_wider <- df_working_wider %>%
+  mutate(
+    McMurray = na_if(McMurray, "NA")
+  )
+###
+df_working_wider <- df_working_wider %>%
+  mutate(
+    McMurray = case_when(
+      str_detect(McMurray, "did not") ~ "NT",
+      McMurray == "NT due to ROM" ~ "NT",
+      TRUE ~ McMurray
+    )
+  )
+###
+df_working_wider <- df_working_wider %>%
+  mutate(
+    McMurray = case_when(
+      str_detect(McMurray, "did not") ~ "NT",
+      McMurray == "NT due to ROM" ~ "NT",
+      tolower(McMurray) %in% c("unable", "negative", "nt") ~ McMurray,
+      TRUE ~ NA_character_
+    )
+  )
+###
+df_working_wider <- df_working_wider %>%
+  mutate(
+    McMurray = ifelse(McMurray == "negative", "Negative", McMurray)
+  )
+
+```
+
+*****Neurovascular*****
+```{r}
+df_working_wider <- df_working_wider %>%
+  mutate(
+    Neurovascular = case_when(
+      Neurovascular == "NA" ~ NA_character_,
+      tolower(Neurovascular) == "normal" ~ "intact",
+      grepl("intac", tolower(Neurovascular), ignore.case = TRUE) ~ "intact",
+      grepl("decreased|diminished", tolower(Neurovascular), ignore.case = TRUE) ~ "diminished sensation",
+      grepl("intact", tolower(Neurovascular)) ~ "intact",
+      TRUE ~ "NA"
+    )
+  )
+```
+
+*****Patellar Apprehension*****
+```{r}
+df_working_wider <- df_working_wider %>%
+  mutate(
+    `Patellar Apprehension` = case_when(
+      grepl("positive", tolower(`Patellar Apprehension`)) ~ "positive",
+      grepl("negative", tolower(`Patellar Apprehension`)) ~ "negative",
+      TRUE ~ `Patellar Apprehension`
+    )
+  )
+###
+df_working_wider <- df_working_wider %>%
+  mutate(
+    `Patellar Apprehension` = case_when(
+      grepl("positive", tolower(`Patellar Apprehension`)) ~ "positive",
+      grepl("negative", tolower(`Patellar Apprehension`)) ~ "negative",
+      grepl("pain", tolower(`Patellar Apprehension`)) ~ "negative",
+      grepl("no apprehension", tolower(`Patellar Apprehension`)) ~ "negative",
+      grepl("no thud", tolower(`Patellar Apprehension`)) ~ "negative",
+      grepl("mild", tolower(`Patellar Apprehension`)) ~ "negative",
+      grepl("10", tolower(`Patellar Apprehension`)) ~ "negative",
+      TRUE ~ `Patellar Apprehension`
+    )
+  )
+###
+df_working_wider <- df_working_wider %>%
+  mutate(
+    `Patellar Apprehension` = case_when(
+      grepl("neg", tolower(`Patellar Apprehension`)) ~ "negative",
+      TRUE ~ `Patellar Apprehension`
+    )
+  )
+###
+df_working_wider <- df_working_wider %>%
+  mutate(
+    `Patellar Apprehension` = case_when(
+      `Patellar Apprehension` %in% c("negative", "positive", NA, "NT") ~ `Patellar Apprehension`,
+      TRUE ~ NA_character_
+    )
+  )
+```
+
+*****Pivot Shift*****
+```{r}
+df_working_wider <- df_working_wider %>%
+  mutate(
+    `Pivot Shift` = case_when(
+      str_detect(tolower(`Pivot Shift`), "unable") ~ "Unable",
+      str_detect(tolower(`Pivot Shift`), "(did not|didn't)") ~ "NT",
+      TRUE ~ `Pivot Shift`
+    )
+  )
+###
+df_working_wider <- df_working_wider %>%
+  mutate(
+    `Pivot Shift` = case_when(
+      str_detect(`Pivot Shift`, "NT") ~ "NT",
+      str_detect(`Pivot Shift`, "Nt") ~ "NT",
+      TRUE ~ `Pivot Shift`
+    )
+  )
+###
+df_working_wider <- df_working_wider %>%
+  mutate(
+    `Pivot Shift` = case_when(
+      `Pivot Shift` %in% c("[null|none|G1|G2|G3]", NA) ~ NA_character_,
+      TRUE ~ `Pivot Shift`
+    )
+  )
+###
+df_working_wider <- df_working_wider %>%
+  mutate(
+    `Pivot Shift` = ifelse(`Pivot Shift` %in% c("NA", "n/a"), NA_character_, `Pivot Shift`)
+  )
+###
+df_working_wider <- df_working_wider %>%
+  mutate(
+    `Pivot Shift` = ifelse(grepl("G2", `Pivot Shift`), "G2", `Pivot Shift`)
+  )
+df_working_wider <- df_working_wider %>%
+  mutate(
+    `Pivot Shift` = ifelse(grepl("G1", `Pivot Shift`), "G1", `Pivot Shift`)
+  )
+###
+df_working_wider <- df_working_wider %>%
+  mutate(
+    `Pivot Shift` = case_when(
+      tolower(`Pivot Shift`) %in% c("none - guarded", "none", "none, guarded", "none bilaterally", "neg", "none bil", "negative") ~ "none",
+      TRUE ~ `Pivot Shift`
+    )
+  )
+###
+df_working_wider <- df_working_wider %>%
+  mutate(
+    `Pivot Shift` = case_when(
+      grepl("none", tolower(`Pivot Shift`)) ~ "none",
+      TRUE ~ `Pivot Shift`
+    )
+  )
+###
+df_working_wider <- df_working_wider %>%
+  mutate(
+    `Pivot Shift` = case_when(
+      grepl("unable", tolower(`Pivot Shift`)) ~ "Unable",
+      TRUE ~ `Pivot Shift`
+    )
+  )
+###
+df_working_wider <- df_working_wider %>%
+  mutate(
+    `Pivot Shift` = case_when(
+      grepl("glide", tolower(`Pivot Shift`)) ~ "Glide",
+      TRUE ~ `Pivot Shift`
+    )
+  )
+###
+df_working_wider <- df_working_wider %>%
+  mutate(
+    `Pivot Shift` = case_when(
+      str_detect(tolower(`Pivot Shift`), "grade 2") ~ "G2",
+      str_detect(tolower(`Pivot Shift`), "grade 1") ~ "G1",
+      TRUE ~ `Pivot Shift`
+    )
+  )
+###
+df_working_wider <- df_working_wider %>%
+  mutate(`Pivot Shift` = case_when(
+    `Pivot Shift` %in% c("none", "Unable", "NT", "G2", "G1", "NA", "Glide", "G3") ~ `Pivot Shift`,
+    TRUE ~ NA_character_
+  ))
+```
+
+*****Pop Snap*****
+```{r}
+df_working_wider <- df_working_wider %>%
+  mutate(PopSnap = case_when(
+    grepl("swelling", PopSnap, ignore.case = TRUE) ~ NA_character_,
+    grepl("MOI", PopSnap, ignore.case = TRUE) ~ NA_character_,
+    grepl("-", PopSnap) ~ NA_character_,
+    TRUE ~ PopSnap
+  ))
+###
+# Transform "Yes to" to "Yes"
+df_working_wider$PopSnap <- gsub("Yes to", "Yes", df_working_wider$PopSnap)
+
+# Transform "No to" and variants to "No"
+df_working_wider$PopSnap <- gsub("\\bno to\\b|\\bNO\\b|\\bno\\b|\\bNo to\\b", "No", df_working_wider$PopSnap, ignore.case = TRUE)
+###
+df_working_wider$PopSnap <- na_if(df_working_wider$PopSnap, "NA")
+###
+df_working_wider <- df_working_wider %>%
+  mutate(
+    PopSnap = case_when(
+      PopSnap %in% c("Yes", "No") ~ PopSnap,
+      TRUE ~ NA_character_
+    )
+  )
+```
+
+****To make things easier"****
+I will call my working df "df_work" and test all my codes on it and if something goes wrong I'll use df_test_wider as a backup. 
+This means after each column manipulation, I'll update df_test_wider from df_work by calling: df_test_wider <- df_work; but continue to use df_work. 
+```{r}
+df_work <- df_working_wider
+```
+Here's this code again if needed:
+#unique_values <- df_work %>% group_by(PopSnap) %>%  summarise(count = n()) %>%  arrange(desc(count))
+
+*****Previous Injury*****
+Will be using presence or absence for this variable (Yes, NA)
+```{r}
+df_work <- df_work %>%
+  mutate(
+    PreviousInjury = if_else(!is.na(PreviousInjury), "Yes", PreviousInjury)
+  )
+```
+
+*****Previous Surgery*****
+It is the case that this is not limited to orthopaedic knee surgeries. I'll update the title to reflect this. Then I'll use presence for this variable (yes or no). 
+```{r}
+df_work <- df_work %>%
+  rename(AnyPreviousSurgery = PreviousSurgery)
+###
+df_work <- df_work %>%
+  mutate(AnyPreviousSurgery = if_else(is.na(AnyPreviousSurgery), "No", "Yes"))
+```
+
+*****Prior Treatment*****
+There are a number of combinations including PT, AT, RMT, Chiro, Bracing, injections, other.
+I will create a new column for each of the treatments and then have a yes or no for each value or blank if it was blank. 
+```{r}
+# Define the treatment types
+treatment_types <- c("Physiotherapy", "Athletic Therapy", "Massage Therapy", 
+                     "Chiro", "Bracing", "Injections (e.g., cortisone, PRP)", "Other")
+
+# Iterate over each treatment type and create a binary indicator column
+for (treatment in treatment_types) {
+  df_work <- df_work %>%
+    mutate(!!treatment := if_else(str_detect(PriorTreatment, fixed(treatment, ignore_case = TRUE)), "Yes", "No"))
+}
+
+```
+There are 7 unique values remaining after the above cleaning. They are descriptors of specifics such as "recovery routine suggested" or "zimmer 4 weeks" "wrapping, icing" and others similar that don't fit into a category. They will have NA values for the new columns. I can remove this prior treatment column now that the useful information has been extracted. 
+```{r}
+df_work <- df_work %>% select(-PriorTreatment)
+```
+
+*****SLR*****
+Similar to other physical examinations.
+```{r}
+df_work <- df_work %>%
+  mutate(SLR = case_when(
+    SLR %in% c("[positive|negative]", "n/a", "NA") ~ NA_character_,
+    grepl("positive", SLR, ignore.case = TRUE) ~ "positive",
+    grepl("negative", SLR, ignore.case = TRUE) ~ "negative",
+    grepl("unable", SLR, ignore.case = TRUE) ~ "unable",
+    grepl("NT", SLR, ignore.case = TRUE) ~ "NT",
+    SLR %in% c("positive", "negative", "unable", "NT") ~ SLR,
+    is.na(SLR) ~ NA_character_,
+    TRUE ~ NA_character_  
+  ))
+```
+
+*****Sag Sign*****
+```{r}
+df_work <- df_work %>%
+  mutate(`Sag Sign` = case_when(
+    `Sag Sign` == "[null|positive|negative]" ~ NA_character_,
+    `Sag Sign` == "NA" ~ NA_character_,
+    grepl("unable", `Sag Sign`, ignore.case = TRUE) ~ "unable",
+    grepl("negative|neg", `Sag Sign`, ignore.case = TRUE) ~ "negative",
+    grepl("positive|pos", `Sag Sign`, ignore.case = TRUE) ~ "positive",
+    grepl("NT", `Sag Sign`, ignore.case = TRUE) ~ "NT",
+    grepl("no|none", `Sag Sign`, ignore.case = TRUE) ~ "negative",
+    grepl("subtle|slight|mild", `Sag Sign`, ignore.case = TRUE) ~ NA_character_,
+    grepl("yes", `Sag Sign`, ignore.case = TRUE) ~ "positive",
+    TRUE ~ NA_character_  
+  ))
+```
+
+*****Sex*****
+Only values are NA, F, M, and Uk. No manipulations needed!!
+
+*****Slip*****
+```{r}
+df_work <- df_work %>%
+  mutate(Slip = case_when(
+    grepl(",", Slip) ~ NA_character_,
+    Slip == "no" ~ "No",
+    Slip == "NA" ~ NA_character_,
+    TRUE ~ Slip
+  ))
+```
+
+*****Smoker Packs Per Day*****
+```{r}
+df_work <- df_work %>%
+  mutate(SmokerPacksPerDay = case_when(
+    SmokerPacksPerDay %in% c(".5", ".5 pack a day") ~ "0.5",
+    SmokerPacksPerDay == ".25" ~ "0.25",
+    SmokerPacksPerDay %in% c("1 pack", "1 pack per day") ~ "1",
+    TRUE ~ SmokerPacksPerDay
+  ))
+###
+df_work <- df_work %>%
+  mutate(SmokerPacksPerDay = case_when(
+    SmokerPacksPerDay %in% c("0.5", "0.25", "1") | is.na(SmokerPacksPerDay) ~ SmokerPacksPerDay,
+    TRUE ~ NA_character_
+  ))
+```
+
+*****Smoker quit*****
+Only values are na, yes, no. Can be left as is. 
+
+*****Sought Care*****
+Presence for this variable as well. NA or Yes.
+```{r}
+df_work <- df_work %>%
+  mutate(SoughtCare = case_when(
+    is.na(SoughtCare) ~ SoughtCare,
+    TRUE ~ "Yes"
+  ))
+```
+
+*****Thumb Sign*****
+
+```{r}
+df_work <- df_work %>%
+  mutate(
+    `Thumb Sign` = case_when(
+      `Thumb Sign` == "[null|positive|negative]" ~ NA_character_,
+      `Thumb Sign` == "NA" ~ NA_character_,
+      grepl("positive|pos", `Thumb Sign`, ignore.case = TRUE) ~ "positive",
+      grepl("negative|neg|none|no ssd", `Thumb Sign`, ignore.case = TRUE) ~ "negative",
+      grepl("NT|did not", `Thumb Sign`, ignore.case = TRUE) ~ "NT",
+      grepl("unable", `Thumb Sign`, ignore.case = TRUE) ~ "unable",
+      grepl("subtle", `Thumb Sign`, ignore.case = TRUE) ~ "positive",
+      grepl("mild", `Thumb Sign`, ignore.case = TRUE) ~ "positive",
+      grepl("slight", `Thumb Sign`, ignore.case = TRUE) ~ "positive",
+      TRUE ~ `Thumb Sign`
+    )
+  )
+###
+df_work <- df_work %>%
+  mutate(
+    `Thumb Sign` = case_when(
+      `Thumb Sign` %in% c("negative", "positive", "unable", "NT") ~ `Thumb Sign`,
+      TRUE ~ NA_character_
+    )
+  )
+```
+
+*****Trip*****
+```{r}
+df_work <- df_work %>%
+  mutate(Trip = case_when(
+    grepl(",", Trip) ~ NA_character_,
+    Trip == "NA" ~ NA_character_,
+    TRUE ~ Trip
+  ))
+```
+
+*****Twist/Pivot*****
+```{r}
+df_work <- df_work %>%
+  mutate(
+    `Twist/Pivot` = case_when(
+      grepl(",", `Twist/Pivot`) ~ NA_character_,
+      `Twist/Pivot` == "NA" ~ NA_character_,
+      `Twist/Pivot` == "Yes" ~ "yes",
+      `Twist/Pivot` == "no" ~ "No",
+      `Twist/Pivot` == "pivot" ~ "yes",
+      `Twist/Pivot` == "tbd" ~ NA_character_,
+      TRUE ~ `Twist/Pivot`
+    )
+  )
+```
+
+*****Unstable when*****
+All values contain one of the 8 options except 6 that had erroneous data. 
+```{r}
+df_work <- df_work %>%
+  mutate(
+    UnstableWhen = case_when(
+      grepl("Going up stairs", UnstableWhen, ignore.case = TRUE) ~ "Going up stairs",
+      grepl("Going down stairs", UnstableWhen, ignore.case = TRUE) ~ "Going down stairs",
+      grepl("Going up and down stairs", UnstableWhen, ignore.case = TRUE) ~ "Going up and down stairs",
+      grepl("Twisting and/or pivoting", UnstableWhen, ignore.case = TRUE) ~ "Twisting and/or pivoting",
+      grepl("Playing sports", UnstableWhen, ignore.case = TRUE) ~ "Playing sports",
+      grepl("During my normal daily activities", UnstableWhen, ignore.case = TRUE) ~ "During my normal daily activities",
+      grepl("All of the above", UnstableWhen, ignore.case = TRUE) ~ "All of the above",
+      UnstableWhen == "actual na" ~ "actual na",
+      TRUE ~ NA_character_
+    )
+  )
+```
+
+*****Urgent Facility*****
+Only values yes no NA. Can leave as is.
+
+*****Valgus*****
+```{r}
+# Transform values with a comma to actual NA
+df_work <- df_work %>%
+  mutate(Valgus = ifelse(str_detect(Valgus, ","), NA, Valgus))
+
+# Transform "no" to "No"
+df_work <- df_work %>%
+  mutate(Valgus = ifelse(Valgus == "no", "No", Valgus))
+
+# Transform "NA" to actual NA
+df_work <- df_work %>%
+  mutate(Valgus = ifelse(Valgus == "NA", NA, Valgus))
+
+```
+
+*****Varus*****
+```{r}
+# Transform values with a comma to actual NA
+df_work <- df_work %>%
+  mutate(Varus = ifelse(str_detect(Varus, ","), NA, Varus))
+
+# Transform "no" to "No"
+df_work <- df_work %>%
+  mutate(Varus = ifelse(Varus == "no", "No", Varus))
+
+# Transform "NA" to actual NA
+df_work <- df_work %>%
+  mutate(Varus = ifelse(Varus == "NA", NA, Varus))
+
+# Transform "tbd" to actual NA
+df_work <- df_work %>%
+  mutate(Varus = ifelse(Varus == "tbd", NA, Varus))
+```
+
+*****Diagnostics Done*****
+I'll use the same approach as used for treatments (AT, PT, chiro, etc)
+First I'll need to do some cleaning. Mostly of the spelling/- of "X-ray" and of u/s for "Ultrasound" and ct to "CT Scan". I have "Other" as a treatment type as well as a diagnostic type so need to rename accordingly.But I see I have a column yet to be assessed called "OtherTreatment" which I've now confirmed can be deleted. SO delete current column "OtherTreatment" then rename the other category of treatment "Other Treatment" then can call other category of diagnostics done "other diagnostics done". 
+```{r}
+df_work <- df_work %>%
+  mutate(DiagnosticsDone = str_replace_all(DiagnosticsDone, c("Xrays" = "X-ray",
+                                                              "xrays" = "X-ray",
+                                                              "Xray" = "X-ray",
+                                                              "xray" = "X-ray",
+                                                              "Xay" = "X-ray",
+                                                              "X-rays" = "X-ray",
+                                                              "x-ray" = "X-ray")))
+###
+df_work <- df_work %>%
+  mutate(DiagnosticsDone = str_replace_all(DiagnosticsDone, c("us" = "Ultrasound",
+                                                              "US" = "Ultrasound",
+                                                              "u/s" = "Ultrasound",
+                                                              "U/S" = "Ultrasound",
+                                                              "U/s" = "Ultrasound")))
+
+###
+df_work <- df_work %>%
+  mutate(DiagnosticsDone = str_replace_all(DiagnosticsDone, "\\bCT\\b", "CT Scan"))
+
+###
+df_work <- df_work %>% select(-OtherTreatment)
+df_work <- df_work %>% rename(`Other Treatment` = Other)
+###
+diagnostic_types <- c("X-ray", "Ultrasound", "MRI", "CT Scan", "Bone Scan", "Other")
+
+# Iterate through each diagnostic type
+for (diag_type in diagnostic_types) {
+  # Create a new column with the diagnostic type name
+  df_work <- df_work %>%
+    mutate(!!sym(diag_type) := ifelse(str_detect(DiagnosticsDone, diag_type), "Yes", "No"))
+}
+###
+df_work <- df_work %>%
+  rename(`Other Diagnostics Done` = Other)
+###
+df_work <- df_work %>%
+  select(-DiagnosticsDone)
+```
+
+*****BMI*****
+There are about 15 values of BMI that are greater than 50. This seems erroneous. While I have no way to confirm, I will transform all values greater than 50 to NA. There appears to be no erroneous low data (e.g. 3 or -5). 
+According to multiple sources, there is a commonly accepted range of BMI for classifications. I'll use those for this analysis.
+First, BMI is not classified as numeric:
+```{r}
+# Convert BMI column to numeric, replacing non-numeric values with NA
+df_work$BMI <- as.numeric(as.character(df_work$BMI))
+
+# Define the breaks and labels for the BMI categories
+breaks <- c(-Inf, 18.5, 24.9, 29.9, Inf)
+labels <- c("underweight", "healthy weight", "overweight", "obese")
+
+# Cut the BMI values into categories and replace them in the original column
+df_work$BMI <- cut(df_work$BMI, breaks = breaks, labels = labels)
+```
+
+*****Initial knee straighten*****
+```{r}
+df_work <- df_work %>%
+  mutate(
+    InitialKneeStraighten = case_when(
+      is.na(InitialKneeStraighten) ~ NA_character_,
+      tolower(InitialKneeStraighten) == "no" ~ "No",
+      tolower(InitialKneeStraighten) == "yes" ~ "Yes",
+      TRUE ~ NA_character_
+    )
+  )
+```
+
+*****Prescription Medication*****
+```{r}
+df_work <- df_work %>%
+  mutate(PrescriptionMedication = ifelse(PrescriptionMedication == "None?", "None", PrescriptionMedication))
+###
+df_work <- df_work %>%
+  mutate(PrescriptionMedication = replace_na(PrescriptionMedication, "None"))
+###
+df_work <- df_work %>%
+  mutate(PrescriptionMedication = case_when(
+    PrescriptionMedication == "None" ~ "None",
+    TRUE ~ "Yes"
+  ))
+```
+
+*****Supplements*****
+```{r}
+df_work <- df_work %>%
+  mutate(Supplements = case_when(
+    is.na(Supplements) ~ "None",
+    TRUE ~ "Yes"
+  ))
+```
+
+*****Previous Knee Injury*****
+Other column "previous injury" includes any injury. This column contains what's pertinent. Combined with the current knee column, this can be useful. I will clean this column then remove the "previous injury" column as it contained shoulder, neck, ankle, finger, etc injuries. 
+```{r}
+df_work <- df_work %>%
+  mutate(PreviousInjuryKnee = case_when(
+    PreviousInjuryKnee == "L" ~ "Left",
+    tolower(PreviousInjuryKnee) == "r" ~ "Right",
+    tolower(PreviousInjuryKnee) == "right" ~ "Right",
+    TRUE ~ PreviousInjuryKnee
+  ))
+
+```
+
+*****Non-prescription Medication*****
+```{r}
+df_work <- df_work %>%
+  mutate(
+    NonPrescriptionMedication = if_else(is.na(NonPrescriptionMedication), "None", "Yes")
+  )
+```
+
+*****Sport*****
+See other file "Importing Ski from MOI to Sport" for inital steps to bring Ski value from manually cleaned MOI excel spreadsheet. 
+```{r}
+# Left join df_work with df_MOI based on patientID
+df_work <- left_join(df_work, df_MOI, by = "patientID")
+
+# Replace Sport values in df_work1 with the corresponding values from df_MOI
+df_work <- df_work %>%
+  mutate(Sport = if_else(!is.na(Sport.y), Sport.y, Sport.x)) %>%
+  select(-Sport.x, -Sport.y)  # Drop the original Sport columns
+```
+Because the patientID's didn't match perfectly due to the timing of cleaning of each of them, there are some patientID's who came over with Skiing values for Sport but have no other data. These can be removed so the number of rows returns to 7538 from the current 7550. Actually this was due to having duplicates in the df_MOI I didn't remove prior. The following corrects this:
+```{r}
+df_work <- distinct(df_work)
+```
+
+*****Family Medical*****
+Will treat as presence or not.
+```{r}
+df_work$FamilyMedical <- ifelse(is.na(df_work$FamilyMedical), NA, "Yes")
+```
+
+*****Previoussurgeryknee*****
+```{r}
+df_work <- df_work %>%
+  mutate(PreviousSurgeryKnee = case_when(
+    str_detect(tolower(PreviousSurgeryKnee), "left knee") ~ "Left",
+    str_detect(tolower(PreviousSurgeryKnee), "right knee") ~ "Right",
+    str_detect(tolower(PreviousSurgeryKnee), "both knees") ~ "Both",
+    str_detect(tolower(PreviousSurgeryKnee), "l knee") ~ "Left",
+    str_detect(tolower(PreviousSurgeryKnee), "left / date:") ~ "Left",
+    str_detect(tolower(PreviousSurgeryKnee), "r knee") ~ "Right",
+    TRUE ~ PreviousSurgeryKnee
+  ))
+```
+
+*****Lachman*****
+Will clean as others, then attempt to clean the "Rxmm Lxmm" and have mathematic function to create a "xmm ssd" value
+```{r}
+# Function to calculate side-to-side difference
+calculate_ssd <- function(text) {
+  # Extract values using regex to handle colons and varying spaces
+  matches <- str_match_all(text, "(\\bL\\b|\\bR\\b)[:\\s]*(\\d+)\\s*mm")
+  
+  # Convert to a data frame
+  df <- data.frame(side = matches[[1]][,2], value = as.numeric(matches[[1]][,3]))
+  
+  if(nrow(df) != 2) {
+    return(text) # Return the original text if extraction fails
+  }
+  
+  # Calculate the difference
+  ssd <- abs(df$value[1] - df$value[2])
+  
+  # Return the formatted result with space between number and "mm"
+  return(paste(ssd, "mm side-to-side difference"))
+}
+
+# Assuming df_work is your dataframe
+df_work <- df_work %>%
+  mutate(Lachman = ifelse(str_detect(tolower(Lachman), "no ssd"), "No side-to-side difference", Lachman)) %>%
+  mutate(Lachman = str_replace_all(Lachman, "(?i)firm", "")) %>%
+  mutate(Lachman = str_replace_all(Lachman, "(?i)soft", "")) %>%
+  mutate(Lachman = str_replace_all(Lachman, "(?i)ssd", "side-to-side difference")) %>%
+  mutate(Lachman = str_replace_all(Lachman, "-\\d+", "")) %>% # Remove all cases of "-x" where x is any number
+  rowwise() %>%
+  mutate(Lachman = calculate_ssd(Lachman)) %>%
+  ungroup() %>%
+  mutate(Lachman = str_trim(Lachman)) %>%
+  mutate(Lachman = str_replace_all(Lachman, "(\\d+)\\s*mm", "\\1mm")) %>% # Remove spaces between number and "mm"
+  mutate(Lachman = str_replace(Lachman, "difference.*", "difference")) %>% # Remove any character following "difference"
+  mutate(Lachman = ifelse(str_detect(tolower(Lachman), "unable"), "Unable", Lachman)) %>% # Transform any value containing "unable" to "Unable"
+  mutate(Lachman = str_replace_all(Lachman, "\\?", "")) %>% # Remove all "?"
+  mutate(Lachman = str_replace_all(Lachman, "(\\d+)\\s*side-to-side difference", "\\1mm side-to-side difference")) %>% # Transform "2 side-to-side difference" to "2mm side-to-side difference"
+  mutate(Lachman = str_replace_all(Lachman, "0mm side-to-side difference", "No side-to-side difference")) %>% # Transform "0mm side-to-side difference" to "No side-to-side difference"
+  mutate(Lachman = ifelse(Lachman %in% c("1mm side-to-side difference", "2mm side-to-side difference", 
+                                         "3mm side-to-side difference", "4mm side-to-side difference",
+                                         "No side-to-side difference", "Unable") | 
+                          str_detect(Lachman, "^\\d+mm side-to-side difference$"), 
+                          ifelse(str_detect(Lachman, "^(5|6|7|8|9|10)mm side-to-side difference$"), 
+                                 "5+ mm side-to-side difference", Lachman), NA)) # Transform remaining values to NA and values 5mm and greater to "5+ mm side-to-side difference"
+```
+
+*****Age*****
+I'll create buckets, a priori, as i did with BMI. But I'll create a new column (AgeCategory) for this and leave age as a "floored" (rounded down) number. The analysis will determine if rounded age or age category is more or less relevent.
+```{r}
+df_work <- df_work %>%
+  mutate(Age = as.numeric(Age)) %>% # Convert to numeric
+  mutate(Age = floor(Age)) %>% # Round down to the nearest whole number
+  mutate(AgeCategory = case_when(
+    Age >= 13 & Age <= 17 ~ "13-17 years",
+    Age >= 18 & Age <= 24 ~ "18-24 years",
+    Age >= 25 & Age <= 34 ~ "25-34 years",
+    Age >= 35 & Age <= 44 ~ "35-44 years",
+    Age >= 45 & Age <= 54 ~ "45-54 years",
+    Age >= 55 & Age <= 64 ~ "55-64 years",
+    Age >= 65 & Age <= 74 ~ "65-74 years",
+    Age >= 75 & Age <= 84 ~ "75-84 years",
+    Age >= 85 ~ "85+ years",
+    TRUE ~ NA_character_ # In case there are ages outside the given ranges
+  ))
+```
+
+
+*****Assessment*****
+Remove left, right, and bilateral markers. These are irrelevant because there is "current knee" column to match with previous knee injury. 
+```{r}
+# Remove variations of "LEFT" and "RIGHT" from the values in the "Assessment" column
+df_work$Assessment <- gsub("\\b(RIGHT|RIGTH|RIGH|LFET|LET|LEFTL|EFT|LEF|LEFT)\\b", "", df_work$Assessment, ignore.case = TRUE)
+# Remove "BILAT", "RIGHTL", and ";T" from the values in the "Assessment" column
+###
+df_work$Assessment <- gsub("\\b(BILAT|RIGHTL|;T)\\b", "", df_work$Assessment, ignore.case = TRUE)
+###
+df_work$Assessment <- gsub("[;/]", "", df_work$Assessment)
+###QUADS CLEANING
+df_work$Assessment <- gsub("QUADROCEPS", "QUADRICEPS", df_work$Assessment)
+df_work$Assessment <- gsub("QUADRICEPS TEAR", "QUADRICEPS STRAIN", df_work$Assessment)
+df_work$Assessment <- gsub("QUADRICEPS CONTUSION", "QUADRICEPS STRAIN", df_work$Assessment)
+###HAMSTRING CLEANING
+# Transform "HAMSTRING TEAR" to "HAMSTRING STRAIN"
+df_work$Assessment <- gsub("HAMSTRING TEAR", "HAMSTRING STRAIN", df_work$Assessment)
+# Transform "HAMSTRAING STRAIN" to "HAMSTRING STRAIN"
+df_work$Assessment <- gsub("HAMSTRAING STRAIN", "HAMSTRING STRAIN", df_work$Assessment)
+# Remove all "?" from the "Assessment" column
+df_work$Assessment <- gsub("\\?", "", df_work$Assessment)
+# Transform all lowercase letters to uppercase letters
+df_work$Assessment <- toupper(df_work$Assessment)
+### I have repeats out of order I need to restructure: e.g. "ACL MMT" vs "MMT ACL" are the same but not appearing together.
+df_work <- df_work %>%
+  mutate(Assessment = gsub("MMT ACL", "ACL MMT", Assessment))
+df_work <- df_work %>%
+  mutate(Assessment = gsub("MEN ACL", "ACL MEN", Assessment))
+df_work <- df_work %>%
+  mutate(Assessment = gsub("MILMCL MMT", "MMT MILMCL", Assessment))
+df_work <- df_work %>%
+  mutate(Assessment = gsub("LMT ACL", "ACL LMT", Assessment))
+df_work <- df_work %>%
+  mutate(Assessment = gsub("MODMCL ACL", "ACL MODMCL", Assessment))
+df_work <- df_work %>%
+  mutate(Assessment = gsub("ACL MILMCL MEN", "ACL MEN MILMCL", Assessment))
+df_work <- df_work %>%
+  mutate(Assessment = gsub("MILMCL ACL MEN", "ACL MEN MILMCL", Assessment))
+df_work <- df_work %>%
+  mutate(Assessment = gsub("MODMCL MMT", "MMT MODMCL", Assessment))
+df_work <- df_work %>%
+  mutate(Assessment = gsub("MILMCL ACL", "ACL MILMCL", Assessment))
+df_work <- df_work %>%
+  mutate(Assessment = gsub("ACL MEN MODMCL", "ACL MODMCL MEN", Assessment))
+###Any "Locked" as would be clinically relevant/urgent
+count_locked <- df_work %>%
+  filter(grepl("LOCKED", Assessment)) %>%
+  nrow()
+# Display the count
+print(count_locked)
+# There are 272 total. A specific analysis could be done on these.
+```
+
+*****Final Variable/Column Cleaning*****
+In beginning to run a decision tree, I found there were some columns I meant to delete and didn't and there were some that needed additional cleaning. I've included those above "Assessment" cleaning (e.g. Lachman, age). I can now remove columns and am confident all the others are completely cleaned with no more than 10 levels other than "Sport" and "Assessment". Most, in fact, are ~3 (NA, No, yes).
+```{r}
+df_work <- df_work %>%
+  select(-VisualSign, -Weight, -Height, -Diagnostics)
+```
+
+###unique_values <- df_work %>% group_by(xxvariablexx) %>%  summarise(count = n()) %>%  arrange(desc(count))

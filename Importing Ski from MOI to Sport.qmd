@@ -1,0 +1,30 @@
+---
+title: "Importing Ski as sport"
+format: html
+---
+
+First I'll import the excel spreadsheet with the cleaned MOI.
+```{r}
+df_MOI <- read_excel("C:/Users/jorda/OneDrive/Desktop/MSc Documents/Data/Manual Cleaning of MOI_completed.xlsx")
+```
+Remove columns except ski and rename uofctemppatientid to match other df's for future joining. 
+```{r}
+df_MOI <- df_MOI %>% select (uofcTempPatientID, Ski)
+df_MOI <- df_MOI %>% rename (patientID = uofcTempPatientID)
+```
+Next I only want the values that are "yes" to skiing, then transform the "yes" to "Skiing" for import to other df with "Sport" column.Effectively, then "Skiing" will show up in the Sport column of df_work. 
+```{r}
+df_MOI <- df_MOI %>% filter(Ski == "yes")
+df_MOI <- df_MOI %>%
+  mutate(Ski = ifelse(Ski == "yes", "Skiing", Ski))
+```
+If I call column "Ski", "Sport" I can replace the values in the df_work because I've removed all the patientID's that are NOT skiing. 
+```{r}
+df_MOI <- df_MOI %>% rename(Sport = Ski)
+```
+Remove duplicates:
+```{r}
+df_MOI <- distinct(df_MOI)
+```
+I'm now ready to replace the Sport values in df_work with the values from Sport in df_MOI by patientID. 
+I didn't do this last step prior to joining (seen on Apr 20.qmd) but can remove duplicates as that brought my number from 7550 back to 7538. 

@@ -1,0 +1,83 @@
+---
+title: "All Dx Comparison Significance"
+format: html
+---
+
+## Quarto
+```{r}
+# Create dataframes from the provided data
+data_all_predictors <- data.frame(
+  Diagnosis = c("ACL", "ACL LMT", "ACL MEN", "ACL MEN MILMCL", "ACL MILMCL", "ACL MMT", "ACL MODMCL", "ACL MODMCL MEN", "BC", "LMT", "MEN", "MILMCL", "MMT", "MMT MILMCL", "MMT MODMCL", "MODMCL", "OA", "OTHER", "PFI", "PFP"),
+  Sensitivity = c(0.61, 0.00, 0.60, 0.00, 0.00, 0.00, 0.44, 0.00, 0.00, 0.16, 0.00, 0.65, 0.59, 0.00, 0.00, 0.00, 0.22, 0.00, 0.63, 0.00),
+  Specificity = c(0.89, 1.00, 0.83, 1.00, 1.00, 1.00, 0.95, 1.00, 1.00, 0.98, 1.00, 0.85, 0.76, 1.00, 1.00, 1.00, 0.98, 1.00, 0.98, 1.00),
+  PPV = c(0.37, NA, 0.29, NA, NA, NA, 0.31, NA, NA, 0.30, NA, 0.21, 0.14, NA, NA, NA, 0.39, NA, 0.74, NA),
+  NPV = c(0.95, 0.96, 0.95, 0.97, 0.97, 0.94, 0.97, 0.98, 0.97, 0.95, 0.98, 0.98, 0.97, 0.95, 0.97, 0.93, 0.96, 0.96, 0.97, 0.97),
+  LR_plus = c(5.30, NA, 3.58, NA, NA, NA, 9.44, NA, NA, 7.48, NA, 4.30, 2.47, NA, NA, NA, 13.30, NA, 33.95, NA),
+  LR_minus = c(0.45, 1.00, 0.48, 1.00, 1.00, 1.00, 0.59, 1.00, 1.00, 0.86, 1.00, 0.41, 0.54, 1.00, 1.00, 1.00, 0.79, 1.00, 0.38, 1.00)
+)
+
+data_no_px <- data.frame(
+  Diagnosis = c("ACL", "ACL MEN", "PFI", "MODMCL", "MMT", "MILMCL", "ACL MMT", "LMT", "OA", "MMT MILMCL", "OTHER", "ACL LMT", "PFP", "ACL MODMCL", "ACL MEN MILMCL", "BC", "MMT MODMCL", "ACL MILMCL", "MEN", "ACL MODMCL MEN"),
+  Sensitivity = c(0.27, 0.21, 0.19, 0.81, 0.00, 0.00, 0.07, 0.13, 0.72, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00),
+  Specificity = c(0.85, 0.91, 0.93, 0.63, 1.00, 1.00, 0.91, 0.95, 0.92, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00),
+  PPV = c(0.17, 0.21, 0.18, 0.14, NA, NA, 0.05, 0.13, 0.29, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA),
+  NPV = c(0.91, 0.91, 0.93, 0.98, 0.94, 0.94, 0.94, 0.95, 0.99, 0.95, 0.96, 0.96, 0.97, 0.95, 0.97, 0.97, 0.97, 0.97, 0.98, 0.98),
+  LR_plus = c(1.83, 2.26, 2.66, 2.20, NA, NA, 0.73, 2.49, 8.74, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA),
+  LR_minus = c(0.86, 0.87, 0.88, 0.30, 1.00, 1.00, 1.03, 0.92, 0.31, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00)
+)
+
+# Convert "Inf" to NA
+data_all_predictors[sapply(data_all_predictors, is.infinite)] <- NA
+data_no_px[sapply(data_no_px, is.infinite)] <- NA
+
+# Perform statistical tests
+results <- data.frame(
+  Diagnosis = character(),
+  Metric = character(),
+  All_Predictors_Mean = numeric(),
+  No_Px_Mean = numeric(),
+  P_Value = numeric(),
+  Significant = character()
+)
+
+metrics <- c("Sensitivity", "Specificity", "PPV", "NPV", "LR_plus", "LR_minus")
+
+for (metric in metrics) {
+  all_predictors_values <- data_all_predictors[[metric]]
+  no_px_values <- data_no_px[[metric]]
+  
+  # Filter out pairs where one or both values are NA
+  valid_indices <- which(!is.na(all_predictors_values) & !is.na(no_px_values))
+  valid_all_predictors_values <- all_predictors_values[valid_indices]
+  valid_no_px_values <- no_px_values[valid_indices]
+  
+  if (length(valid_all_predictors_values) == length(valid_no_px_values) && length(valid_all_predictors_values) > 1) {
+    # Use paired t-test
+    test_result <- t.test(valid_all_predictors_values, valid_no_px_values, paired = TRUE)
+    p_value <- test_result$p.value
+  } else {
+    # Use Wilcoxon signed-rank test if lengths differ
+    test_result <- wilcox.test(valid_all_predictors_values, valid_no_px_values, paired = TRUE)
+    p_value <- test_result$p.value
+  }
+  
+  for (i in valid_indices) {
+    results <- rbind(results, data.frame(
+      Diagnosis = data_all_predictors$Diagnosis[i],
+      Metric = metric,
+      All_Predictors_Mean = data_all_predictors[i, metric],
+      No_Px_Mean = data_no_px[i, metric],
+      P_Value = p_value,
+      Significant = ifelse(p_value < 0.05, "Yes", "No")
+    ))
+  }
+}
+
+# Write results to CSV
+write.csv(results, file = "all_dx_comparison_significance.csv", row.names = FALSE)
+
+# Print the results
+print(results)
+
+```
+
